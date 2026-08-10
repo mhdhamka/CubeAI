@@ -1,0 +1,1894 @@
+
+"""
+CubeAI Cube Detector
+
+Detects the visible Rubik's Cube face from an image.
+
+Detection strategy:
+
+1. Edge / contour based quadrilateral detection
+2. Candidate validation
+3. Prefer the large outer 3x3 cube face
+4. Sticker-grid fallback
+5. Perspective correction
+
+The detector returns a normalized 600x600 cube face.
+
+Sticker detection is handled separately by faceDetector.py.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+import sys
+import cv2
+import numpy as np
+
+
+# ============================================================
+# Data structures
+# ============================================================
+
+@dataclass
+class CubeFace:
+    """
+    Represents the detected visible face of a Rubik's Cube.
+    """
+
+    corners: np.ndarray
+    width: int
+    height: int
+    confidence: float
+    warped: Optional[np.ndarray] = None
+
+    @property
+    def top_left(self) -> Tuple[int, int]:
+        return tuple(self.corners[0].astype(int))
+
+    @property
+    def top_right(self) -> Tuple[int, int]:
+        return tuple(self.corners[1].astype(int))
+
+    @property
+    def bottom_right(self) -> Tuple[int, int]:
+        return tuple(self.corners[2].astype(int))
+
+    @property
+    def bottom_left(self) -> Tuple[int, int]:
+        return tuple(self.corners[3].astype(int))
+
+
+# ============================================================
+# Cube detector
+# ============================================================
+
+class CubeDetector:
+
+    def __init__(
+        self,
+        output_size: int = 600,
+        min_area_ratio: float = 0.04,
+        max_area_ratio: float = 0.90,
+        min_face_size: int = 250,
+    ):
+        self.output_size = output_size
+        self.min_area_ratio = min_area_ratio
+        self.max_area_ratio = max_area_ratio
+
+        # IMPORTANT:
+        # Individual stickers in your image are around 200x200.
+        # We do NOT want those to become the cube face.
+        self.min_face_size = min_face_size
+
+    # ========================================================
+    # Public API
+    # ========================================================
+
+    def detect(
+        self,
+        image: np.ndarray,
+    ) -> CubeFace:
+
+        if image is None:
+            raise ValueError(
+                "CubeDetector.detect() received an empty image."
+            )
+
+        if image.size == 0:
+            raise ValueError(
+                "CubeDetector.detect() received an empty image."
+            )
+
+        if len(image.shape) != 3:
+            raise ValueError(
+                "CubeDetector.detect() expects a BGR image."
+            )
+
+        height, width = image.shape[:2]
+
+        if height < 100 or width < 100:
+            raise ValueError(
+                "Image is too small for cube detection."
+            )
+
+        print(
+            f"  Input image: {width}x{height}"
+        )
+
+        # ====================================================
+        # Strategy 1
+        # ====================================================
+
+        candidates = self._find_quadrilateral_candidates(
+            image
+        )
+
+        print(
+            f"  Quadrilateral candidates: "
+            f"{len(candidates)}"
+        )
+
+        candidates = self._deduplicate(
+            candidates
+        )
+
+        print(
+            f"  Candidates after filtering: "
+            f"{len(candidates)}"
+        )
+
+        # ----------------------------------------------------
+        # Print candidate information for debugging
+        # ----------------------------------------------------
+
+        if candidates:
+
+            print(
+                "  Candidate sizes:"
+            )
+
+            debug_candidates = sorted(
+                candidates,
+                key=lambda c: c["score"],
+                reverse=True,
+            )
+
+            for index, candidate in enumerate(
+                debug_candidates[:10]
+            ):
+
+                corners = candidate["corners"]
+
+                x_min = float(
+                    np.min(corners[:, 0])
+                )
+
+                x_max = float(
+                    np.max(corners[:, 0])
+                )
+
+                y_min = float(
+                    np.min(corners[:, 1])
+                )
+
+                y_max = float(
+                    np.max(corners[:, 1])
+                )
+
+                candidate_width = (
+                    x_max - x_min
+                )
+
+                candidate_height = (
+                    y_max - y_min
+                )
+
+                print(
+                    f"    [{index}] "
+                    f"{candidate_width:.0f}x"
+                    f"{candidate_height:.0f} "
+                    f"area={candidate['area_ratio']:.3f} "
+                    f"score={candidate['score']:.3f}"
+                )
+
+        # ====================================================
+        # Select best candidate
+        # ====================================================
+
+        if candidates:
+
+            best = max(
+                candidates,
+                key=lambda c: c["score"],
+            )
+
+            corners = self._order_corners(
+                best["corners"]
+            )
+
+            print(
+                "  Selected cube candidate:"
+            )
+
+            print(
+                f"    Width: "
+                f"{best['width']:.0f}px"
+            )
+
+            print(
+                f"    Height: "
+                f"{best['height']:.0f}px"
+            )
+
+            print(
+                f"    Area ratio: "
+                f"{best['area_ratio']:.3f}"
+            )
+
+            print(
+                f"    Score: "
+                f"{best['score']:.3f}"
+            )
+
+            warped = self._warp_face(
+                image,
+                corners,
+            )
+
+            confidence = float(
+                min(
+                    max(
+                        best["score"],
+                        0.0,
+                    ),
+                    1.0,
+                )
+            )
+
+            return CubeFace(
+                corners=corners,
+                width=self.output_size,
+                height=self.output_size,
+                confidence=confidence,
+                warped=warped,
+            )
+
+        # ====================================================
+        # Strategy 2: Sticker grid
+        # ====================================================
+
+        print(
+            "  Quadrilateral detection failed."
+        )
+
+        print(
+            "  Trying sticker-grid detection..."
+        )
+
+        grid_result = self._detect_sticker_grid(
+            image
+        )
+
+        if grid_result is None:
+            raise RuntimeError(
+                "Could not detect a cube face."
+            )
+
+        grid_corners, grid_confidence = grid_result
+
+        print(
+            "  Sticker grid detected!"
+        )
+
+        corners = self._order_corners(
+            grid_corners
+        )
+
+        warped = self._warp_face(
+            image,
+            corners,
+        )
+
+        return CubeFace(
+            corners=corners,
+            width=self.output_size,
+            height=self.output_size,
+            confidence=grid_confidence,
+            warped=warped,
+        )
+
+    # ========================================================
+    # Strategy 1
+    # ========================================================
+
+    def _find_quadrilateral_candidates(
+        self,
+        image: np.ndarray,
+    ):
+
+        height, width = image.shape[:2]
+
+        gray = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2GRAY,
+        )
+
+        blurred = cv2.GaussianBlur(
+            gray,
+            (5, 5),
+            0,
+        )
+
+        edge_maps = []
+
+        thresholds = [
+            (15, 60),
+            (20, 80),
+            (30, 100),
+            (40, 120),
+            (50, 150),
+            (70, 180),
+            (90, 200),
+        ]
+
+        for low, high in thresholds:
+
+            edges = cv2.Canny(
+                blurred,
+                low,
+                high,
+            )
+
+            # Connect broken cube borders.
+            kernel = np.ones(
+                (7, 7),
+                np.uint8,
+            )
+
+            edges = cv2.morphologyEx(
+                edges,
+                cv2.MORPH_CLOSE,
+                kernel,
+                iterations=2,
+            )
+
+            edge_maps.append(edges)
+
+        candidates = []
+
+        for edges in edge_maps:
+
+            contours, _ = cv2.findContours(
+                edges,
+                cv2.RETR_LIST,
+                cv2.CHAIN_APPROX_SIMPLE,
+            )
+
+            for contour in contours:
+
+                candidate = (
+                    self._contour_to_candidate(
+                        contour,
+                        width,
+                        height,
+                    )
+                )
+
+                if candidate is not None:
+                    candidates.append(
+                        candidate
+                    )
+
+        return candidates
+
+    # ========================================================
+    # Candidate extraction
+    # ========================================================
+
+    def _contour_to_candidate(
+        self,
+        contour,
+        image_width: int,
+        image_height: int,
+    ):
+
+        image_area = (
+            image_width
+            * image_height
+        )
+
+        contour_area = cv2.contourArea(
+            contour
+        )
+
+        if contour_area <= 0:
+            return None
+
+        area_ratio = (
+            contour_area
+            / image_area
+        )
+
+        # ----------------------------------------------------
+        # Minimum area
+        # ----------------------------------------------------
+
+        if area_ratio < self.min_area_ratio:
+            return None
+
+        # ----------------------------------------------------
+        # Maximum area
+        # ----------------------------------------------------
+
+        if area_ratio > self.max_area_ratio:
+            return None
+
+        perimeter = cv2.arcLength(
+            contour,
+            True,
+        )
+
+        if perimeter <= 0:
+            return None
+
+        # ----------------------------------------------------
+        # Approximate polygon
+        # ----------------------------------------------------
+
+        approximation = cv2.approxPolyDP(
+            contour,
+            0.02 * perimeter,
+            True,
+        )
+
+        if len(approximation) != 4:
+            return None
+
+        corners = (
+            approximation
+            .reshape(4, 2)
+            .astype(np.float32)
+        )
+
+        if not cv2.isContourConvex(
+            approximation
+        ):
+            return None
+
+        # ----------------------------------------------------
+        # Bounding box
+        # ----------------------------------------------------
+
+        x, y, w, h = cv2.boundingRect(
+            approximation
+        )
+
+        if w <= 0 or h <= 0:
+            return None
+
+        # ----------------------------------------------------
+        # IMPORTANT:
+        #
+        # Reject individual stickers.
+        #
+        # Your bad candidate was approximately:
+        #
+        # 193 x 200
+        #
+        # That is a sticker, not the whole cube face.
+        # ----------------------------------------------------
+
+        if (
+            w < self.min_face_size
+            or h < self.min_face_size
+        ):
+            return None
+
+        # ----------------------------------------------------
+        # Aspect ratio
+        # ----------------------------------------------------
+
+        aspect_ratio = (
+            w / h
+        )
+
+        if (
+            aspect_ratio < 0.55
+            or aspect_ratio > 1.80
+        ):
+            return None
+
+        # ----------------------------------------------------
+        # Side lengths
+        # ----------------------------------------------------
+
+        side_lengths = []
+
+        for i in range(4):
+
+            p1 = corners[i]
+
+            p2 = corners[
+                (i + 1) % 4
+            ]
+
+            distance = np.linalg.norm(
+                p2 - p1
+            )
+
+            side_lengths.append(
+                distance
+            )
+
+        if min(side_lengths) <= 0:
+            return None
+
+        max_side = max(
+            side_lengths
+        )
+
+        min_side = min(
+            side_lengths
+        )
+
+        side_ratio = (
+            min_side
+            / max_side
+        )
+
+        # A cube face should be reasonably square.
+        if side_ratio < 0.45:
+            return None
+
+        # ----------------------------------------------------
+        # Exact image border rejection
+        # ----------------------------------------------------
+
+        xs = corners[:, 0]
+        ys = corners[:, 1]
+
+        touches_left = (
+            np.min(xs) <= 1
+        )
+
+        touches_top = (
+            np.min(ys) <= 1
+        )
+
+        touches_right = (
+            np.max(xs)
+            >= image_width - 2
+        )
+
+        touches_bottom = (
+            np.max(ys)
+            >= image_height - 2
+        )
+
+        touches_all_borders = (
+            touches_left
+            and touches_top
+            and touches_right
+            and touches_bottom
+        )
+
+        if touches_all_borders:
+            return None
+
+        # ----------------------------------------------------
+        # Rectangularity
+        # ----------------------------------------------------
+
+        bounding_area = (
+            w * h
+        )
+
+        rectangularity = (
+            contour_area
+            / bounding_area
+        )
+
+        if rectangularity < 0.45:
+            return None
+
+        # ----------------------------------------------------
+        # Perspective consistency
+        # ----------------------------------------------------
+
+        top = np.linalg.norm(
+            corners[1]
+            - corners[0]
+        )
+
+        bottom = np.linalg.norm(
+            corners[2]
+            - corners[3]
+        )
+
+        left = np.linalg.norm(
+            corners[3]
+            - corners[0]
+        )
+
+        right = np.linalg.norm(
+            corners[2]
+            - corners[1]
+        )
+
+        horizontal_ratio = (
+            min(top, bottom)
+            / max(top, bottom)
+        )
+
+        vertical_ratio = (
+            min(left, right)
+            / max(left, right)
+        )
+
+        perspective_score = (
+            horizontal_ratio
+            + vertical_ratio
+        ) / 2.0
+
+        # ----------------------------------------------------
+        # Square score
+        # ----------------------------------------------------
+
+        aspect_score = 1.0 - min(
+            abs(
+                np.log(
+                    aspect_ratio
+                )
+            ),
+            1.0,
+        )
+
+        # ----------------------------------------------------
+        # Area score
+        #
+        # Large cube faces are preferred.
+        #
+        # This is the key change.
+        # ----------------------------------------------------
+
+        area_score = min(
+            area_ratio / 0.25,
+            1.0,
+        )
+
+        # ----------------------------------------------------
+        # Size score
+        #
+        # A 600px cube should beat a 200px sticker.
+        # ----------------------------------------------------
+
+        size_score = min(
+            min(w, h) / 600.0,
+            1.0,
+        )
+
+        # ----------------------------------------------------
+        # Center score
+        #
+        # Cubes are commonly near the center of the image.
+        # This is only a small weighting.
+        # ----------------------------------------------------
+
+        center_x = (
+            x + w / 2.0
+        )
+
+        center_y = (
+            y + h / 2.0
+        )
+
+        image_center_x = (
+            image_width / 2.0
+        )
+
+        image_center_y = (
+            image_height / 2.0
+        )
+
+        dx = (
+            center_x
+            - image_center_x
+        ) / image_width
+
+        dy = (
+            center_y
+            - image_center_y
+        ) / image_height
+
+        distance_from_center = np.sqrt(
+            dx * dx + dy * dy
+        )
+
+        center_score = max(
+            0.0,
+            1.0
+            - distance_from_center * 2.0,
+        )
+
+        # ----------------------------------------------------
+        # Final score
+        #
+        # Area + size are deliberately strong.
+        # This prevents a single sticker from winning.
+        # ----------------------------------------------------
+
+        score = (
+            area_score * 0.30
+            + size_score * 0.20
+            + rectangularity * 0.15
+            + side_ratio * 0.10
+            + aspect_score * 0.10
+            + perspective_score * 0.10
+            + center_score * 0.05
+        )
+
+        return {
+            "corners": corners,
+            "score": score,
+            "area": contour_area,
+            "area_ratio": area_ratio,
+            "width": float(w),
+            "height": float(h),
+        }
+
+    # ========================================================
+    # Strategy 2: Sticker grid detection
+    # ========================================================
+
+    def _detect_sticker_grid(
+        self,
+        image: np.ndarray,
+    ) -> Optional[Tuple[np.ndarray, float]]:
+
+        height, width = image.shape[:2]
+
+        gray = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2GRAY,
+        )
+
+        blurred = cv2.GaussianBlur(
+            gray,
+            (5, 5),
+            0,
+        )
+
+        # ----------------------------------------------------
+        # Multiple edge maps
+        # ----------------------------------------------------
+
+        all_candidates = []
+
+        for low, high in [
+            (15, 60),
+            (25, 90),
+            (40, 120),
+            (60, 160),
+        ]:
+
+            edges = cv2.Canny(
+                blurred,
+                low,
+                high,
+            )
+
+            kernel = np.ones(
+                (5, 5),
+                np.uint8,
+            )
+
+            edges = cv2.morphologyEx(
+                edges,
+                cv2.MORPH_CLOSE,
+                kernel,
+                iterations=2,
+            )
+
+            contours, _ = cv2.findContours(
+                edges,
+                cv2.RETR_LIST,
+                cv2.CHAIN_APPROX_SIMPLE,
+            )
+
+            image_area = (
+                width * height
+            )
+
+            for contour in contours:
+
+                area = cv2.contourArea(
+                    contour
+                )
+
+                if area <= 0:
+                    continue
+
+                ratio = (
+                    area
+                    / image_area
+                )
+
+                # Sticker-sized regions.
+                if ratio < 0.002:
+                    continue
+
+                if ratio > 0.15:
+                    continue
+
+                perimeter = cv2.arcLength(
+                    contour,
+                    True,
+                )
+
+                if perimeter <= 0:
+                    continue
+
+                approx = cv2.approxPolyDP(
+                    contour,
+                    0.035 * perimeter,
+                    True,
+                )
+
+                if len(approx) != 4:
+                    continue
+
+                if not cv2.isContourConvex(
+                    approx
+                ):
+                    continue
+
+                x, y, w, h = cv2.boundingRect(
+                    approx
+                )
+
+                if (
+                    w < 30
+                    or h < 30
+                ):
+                    continue
+
+                aspect = (
+                    w / h
+                )
+
+                if (
+                    aspect < 0.60
+                    or aspect > 1.67
+                ):
+                    continue
+
+                rectangularity = (
+                    area
+                    / (w * h)
+                )
+
+                if rectangularity < 0.45:
+                    continue
+
+                center_x = (
+                    x + w / 2.0
+                )
+
+                center_y = (
+                    y + h / 2.0
+                )
+
+                all_candidates.append(
+                    {
+                        "x": x,
+                        "y": y,
+                        "w": w,
+                        "h": h,
+                        "cx": center_x,
+                        "cy": center_y,
+                        "area": area,
+                    }
+                )
+
+        # ----------------------------------------------------
+        # Remove near-duplicate sticker candidates.
+        # ----------------------------------------------------
+
+        sticker_candidates = (
+            self._deduplicate_stickers(
+                all_candidates
+            )
+        )
+
+        print(
+            f"  Sticker candidates: "
+            f"{len(sticker_candidates)}"
+        )
+
+        if len(sticker_candidates) < 5:
+            return None
+
+        # ----------------------------------------------------
+        # Try to find a 3x3 cluster.
+        # ----------------------------------------------------
+
+        best_grid = None
+        best_grid_score = -1.0
+
+        # Sort by size.
+        sticker_candidates = sorted(
+            sticker_candidates,
+            key=lambda item: item["area"],
+            reverse=True,
+        )
+
+        # Limit noise.
+        sticker_candidates = (
+            sticker_candidates[:40]
+        )
+
+        for seed in sticker_candidates:
+
+            seed_x = seed["cx"]
+            seed_y = seed["cy"]
+
+            seed_size = (
+                (seed["w"] + seed["h"])
+                / 2.0
+            )
+
+            if seed_size <= 0:
+                continue
+
+            # Expected spacing between sticker centers.
+            spacing = seed_size * 1.15
+
+            nearby = []
+
+            for candidate in sticker_candidates:
+
+                dx = (
+                    candidate["cx"]
+                    - seed_x
+                )
+
+                dy = (
+                    candidate["cy"]
+                    - seed_y
+                )
+
+                distance = np.sqrt(
+                    dx * dx + dy * dy
+                )
+
+                if distance <= (
+                    spacing * 3.0
+                ):
+
+                    nearby.append(
+                        candidate
+                    )
+
+            if len(nearby) < 5:
+                continue
+
+            # ------------------------------------------------
+            # Estimate grid bounds.
+            # ------------------------------------------------
+
+            xs = np.array(
+                [
+                    item["cx"]
+                    for item in nearby
+                ],
+                dtype=np.float32,
+            )
+
+            ys = np.array(
+                [
+                    item["cy"]
+                    for item in nearby
+                ],
+                dtype=np.float32,
+            )
+
+            if len(xs) < 5:
+                continue
+
+            left = float(
+                np.percentile(
+                    xs,
+                    10,
+                )
+            )
+
+            right = float(
+                np.percentile(
+                    xs,
+                    90,
+                )
+            )
+
+            top = float(
+                np.percentile(
+                    ys,
+                    10,
+                )
+            )
+
+            bottom = float(
+                np.percentile(
+                    ys,
+                    90,
+                )
+            )
+
+            grid_width = (
+                right - left
+            )
+
+            grid_height = (
+                bottom - top
+            )
+
+            if (
+                grid_width <= 0
+                or grid_height <= 0
+            ):
+                continue
+
+            grid_aspect = (
+                grid_width
+                / grid_height
+            )
+
+            if (
+                grid_aspect < 0.60
+                or grid_aspect > 1.67
+            ):
+                continue
+
+            # ------------------------------------------------
+            # Estimate spacing.
+            # ------------------------------------------------
+
+            unique_x = sorted(
+                [
+                    float(x)
+                    for x in xs
+                ]
+            )
+
+            unique_y = sorted(
+                [
+                    float(y)
+                    for y in ys
+                ]
+            )
+
+            if (
+                len(unique_x) < 3
+                or len(unique_y) < 3
+            ):
+                continue
+
+            spacing_x = (
+                grid_width
+                / 2.0
+            )
+
+            spacing_y = (
+                grid_height
+                / 2.0
+            )
+
+            if (
+                spacing_x < 20
+                or spacing_y < 20
+            ):
+                continue
+
+            # ------------------------------------------------
+            # Estimate cube boundary.
+            # ------------------------------------------------
+
+            cube_left = (
+                left
+                - spacing_x * 0.60
+            )
+
+            cube_right = (
+                right
+                + spacing_x * 0.60
+            )
+
+            cube_top = (
+                top
+                - spacing_y * 0.60
+            )
+
+            cube_bottom = (
+                bottom
+                + spacing_y * 0.60
+            )
+
+            cube_left = max(
+                0,
+                cube_left,
+            )
+
+            cube_top = max(
+                0,
+                cube_top,
+            )
+
+            cube_right = min(
+                width - 1,
+                cube_right,
+            )
+
+            cube_bottom = min(
+                height - 1,
+                cube_bottom,
+            )
+
+            cube_width = (
+                cube_right
+                - cube_left
+            )
+
+            cube_height = (
+                cube_bottom
+                - cube_top
+            )
+
+            if (
+                cube_width < 250
+                or cube_height < 250
+            ):
+                continue
+
+            cube_area_ratio = (
+                cube_width
+                * cube_height
+                / image_area
+            )
+
+            if cube_area_ratio > 0.90:
+                continue
+
+            # ------------------------------------------------
+            # Count how many candidates actually fit into
+            # expected 3x3 positions.
+            # ------------------------------------------------
+
+            fitted = 0
+
+            for row in range(3):
+
+                expected_y = (
+                    top
+                    + (
+                        row - 1
+                    )
+                    * spacing_y
+                )
+
+                for col in range(3):
+
+                    expected_x = (
+                        left
+                        + (
+                            col - 1
+                        )
+                        * spacing_x
+                    )
+
+                    nearest_distance = float(
+                        "inf"
+                    )
+
+                    for candidate in nearby:
+
+                        dx = (
+                            candidate["cx"]
+                            - expected_x
+                        )
+
+                        dy = (
+                            candidate["cy"]
+                            - expected_y
+                        )
+
+                        distance = np.sqrt(
+                            dx * dx
+                            + dy * dy
+                        )
+
+                        nearest_distance = min(
+                            nearest_distance,
+                            distance,
+                        )
+
+                    if nearest_distance <= (
+                        max(
+                            spacing_x,
+                            spacing_y,
+                        )
+                        * 0.55
+                    ):
+
+                        fitted += 1
+
+            # ------------------------------------------------
+            # Need at least 7/9 positions.
+            # ------------------------------------------------
+
+            if fitted < 7:
+                continue
+
+            grid_score = (
+                fitted / 9.0
+            )
+
+            # Prefer larger grid.
+            grid_score += min(
+                cube_area_ratio,
+                0.40,
+            )
+
+            if grid_score > best_grid_score:
+
+                best_grid_score = (
+                    grid_score
+                )
+
+                best_grid = (
+                    np.array(
+                        [
+                            [
+                                cube_left,
+                                cube_top,
+                            ],
+                            [
+                                cube_right,
+                                cube_top,
+                            ],
+                            [
+                                cube_right,
+                                cube_bottom,
+                            ],
+                            [
+                                cube_left,
+                                cube_bottom,
+                            ],
+                        ],
+                        dtype=np.float32,
+                    ),
+                    fitted,
+                )
+
+        if best_grid is None:
+            return None
+
+        corners, fitted = best_grid
+
+        confidence = min(
+            0.95,
+            0.65
+            + (
+                fitted / 9.0
+            ) * 0.30,
+        )
+
+        return (
+            corners,
+            float(confidence),
+        )
+
+    # ========================================================
+    # Sticker deduplication
+    # ========================================================
+
+    def _deduplicate_stickers(
+        self,
+        candidates,
+    ):
+
+        if not candidates:
+            return []
+
+        candidates = sorted(
+            candidates,
+            key=lambda item: item["area"],
+            reverse=True,
+        )
+
+        kept = []
+
+        for candidate in candidates:
+
+            duplicate = False
+
+            for existing in kept:
+
+                dx = (
+                    candidate["cx"]
+                    - existing["cx"]
+                )
+
+                dy = (
+                    candidate["cy"]
+                    - existing["cy"]
+                )
+
+                distance = np.sqrt(
+                    dx * dx
+                    + dy * dy
+                )
+
+                average_size = (
+                    (
+                        candidate["w"]
+                        + candidate["h"]
+                        + existing["w"]
+                        + existing["h"]
+                    )
+                    / 4.0
+                )
+
+                if distance < (
+                    average_size * 0.50
+                ):
+
+                    duplicate = True
+                    break
+
+            if not duplicate:
+                kept.append(
+                    candidate
+                )
+
+        return kept
+
+    # ========================================================
+    # Deduplicate quadrilateral candidates
+    # ========================================================
+
+    def _deduplicate(
+        self,
+        candidates,
+    ):
+
+        if not candidates:
+            return []
+
+        candidates = sorted(
+            candidates,
+            key=lambda c: c["score"],
+            reverse=True,
+        )
+
+        kept = []
+
+        for candidate in candidates:
+
+            duplicate = False
+
+            for existing in kept:
+
+                if self._candidate_overlap(
+                    candidate,
+                    existing,
+                ) > 0.60:
+
+                    duplicate = True
+                    break
+
+            if not duplicate:
+                kept.append(
+                    candidate
+                )
+
+        return kept
+
+    # ========================================================
+    # Candidate overlap
+    # ========================================================
+
+    def _candidate_overlap(
+        self,
+        a,
+        b,
+    ):
+
+        ax1 = np.min(
+            a["corners"][:, 0]
+        )
+
+        ay1 = np.min(
+            a["corners"][:, 1]
+        )
+
+        ax2 = np.max(
+            a["corners"][:, 0]
+        )
+
+        ay2 = np.max(
+            a["corners"][:, 1]
+        )
+
+        bx1 = np.min(
+            b["corners"][:, 0]
+        )
+
+        by1 = np.min(
+            b["corners"][:, 1]
+        )
+
+        bx2 = np.max(
+            b["corners"][:, 0]
+        )
+
+        by2 = np.max(
+            b["corners"][:, 1]
+        )
+
+        ix1 = max(
+            ax1,
+            bx1,
+        )
+
+        iy1 = max(
+            ay1,
+            by1,
+        )
+
+        ix2 = min(
+            ax2,
+            bx2,
+        )
+
+        iy2 = min(
+            ay2,
+            by2,
+        )
+
+        if (
+            ix2 <= ix1
+            or iy2 <= iy1
+        ):
+            return 0.0
+
+        intersection = (
+            ix2 - ix1
+        ) * (
+            iy2 - iy1
+        )
+
+        area_a = (
+            ax2 - ax1
+        ) * (
+            ay2 - ay1
+        )
+
+        area_b = (
+            bx2 - bx1
+        ) * (
+            by2 - by1
+        )
+
+        smaller = min(
+            area_a,
+            area_b,
+        )
+
+        if smaller <= 0:
+            return 0.0
+
+        return (
+            intersection
+            / smaller
+        )
+
+    # ========================================================
+    # Corner ordering
+    # ========================================================
+
+    def _order_corners(
+        self,
+        corners: np.ndarray,
+    ) -> np.ndarray:
+
+        ordered = np.zeros(
+            (4, 2),
+            dtype=np.float32,
+        )
+
+        sums = (
+            corners[:, 0]
+            + corners[:, 1]
+        )
+
+        differences = (
+            corners[:, 0]
+            - corners[:, 1]
+        )
+
+        # Top-left
+        ordered[0] = corners[
+            np.argmin(sums)
+        ]
+
+        # Top-right
+        ordered[1] = corners[
+            np.argmax(differences)
+        ]
+
+        # Bottom-right
+        ordered[2] = corners[
+            np.argmax(sums)
+        ]
+
+        # Bottom-left
+        ordered[3] = corners[
+            np.argmin(differences)
+        ]
+
+        return ordered
+
+    # ========================================================
+    # Perspective correction
+    # ========================================================
+
+    def _warp_face(
+        self,
+        image: np.ndarray,
+        corners: np.ndarray,
+    ) -> np.ndarray:
+
+        destination = np.array(
+            [
+                [0, 0],
+                [
+                    self.output_size - 1,
+                    0,
+                ],
+                [
+                    self.output_size - 1,
+                    self.output_size - 1,
+                ],
+                [
+                    0,
+                    self.output_size - 1,
+                ],
+            ],
+            dtype=np.float32,
+        )
+
+        matrix = cv2.getPerspectiveTransform(
+            corners,
+            destination,
+        )
+
+        warped = cv2.warpPerspective(
+            image,
+            matrix,
+            (
+                self.output_size,
+                self.output_size,
+            ),
+        )
+
+        return warped
+
+
+# ============================================================
+# Debug drawing
+# ============================================================
+
+def draw_cube_face(
+    image: np.ndarray,
+    cube_face: CubeFace,
+) -> np.ndarray:
+
+    output = image.copy()
+
+    points = (
+        cube_face.corners
+        .astype(np.int32)
+    )
+
+    cv2.polylines(
+        output,
+        [points],
+        True,
+        (0, 255, 0),
+        4,
+    )
+
+    for index, point in enumerate(
+        points
+    ):
+
+        x, y = point
+
+        cv2.circle(
+            output,
+            (x, y),
+            8,
+            (0, 0, 255),
+            -1,
+        )
+
+        cv2.putText(
+            output,
+            str(index),
+            (
+                x + 10,
+                y - 10,
+            ),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (0, 255, 0),
+            2,
+            cv2.LINE_AA,
+        )
+
+    cv2.putText(
+        output,
+        (
+            f"Confidence: "
+            f"{cube_face.confidence:.2f}"
+        ),
+        (20, 40),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.0,
+        (0, 255, 0),
+        2,
+        cv2.LINE_AA,
+    )
+
+    return output
+
+
+# ============================================================
+# Synthetic test image
+# ============================================================
+
+def create_test_cube_image() -> np.ndarray:
+
+    image = np.zeros(
+        (700, 700, 3),
+        dtype=np.uint8,
+    )
+
+    image[:] = (
+        40,
+        40,
+        40,
+    )
+
+    points = np.array(
+        [
+            [130, 120],
+            [560, 100],
+            [590, 560],
+            [110, 580],
+        ],
+        dtype=np.int32,
+    )
+
+    cv2.fillConvexPoly(
+        image,
+        points,
+        (220, 220, 220),
+    )
+
+    cv2.polylines(
+        image,
+        [points],
+        True,
+        (20, 20, 20),
+        8,
+    )
+
+    inner = np.array(
+        [
+            [145, 135],
+            [545, 120],
+            [570, 540],
+            [130, 555],
+        ],
+        dtype=np.float32,
+    )
+
+    for row in range(1, 3):
+
+        alpha = row / 3.0
+
+        left = (
+            inner[0] * (1 - alpha)
+            + inner[3] * alpha
+        )
+
+        right = (
+            inner[1] * (1 - alpha)
+            + inner[2] * alpha
+        )
+
+        cv2.line(
+            image,
+            left.astype(np.int32),
+            right.astype(np.int32),
+            (20, 20, 20),
+            5,
+        )
+
+    for col in range(1, 3):
+
+        alpha = col / 3.0
+
+        top = (
+            inner[0] * (1 - alpha)
+            + inner[1] * alpha
+        )
+
+        bottom = (
+            inner[3] * (1 - alpha)
+            + inner[2] * alpha
+        )
+
+        cv2.line(
+            image,
+            top.astype(np.int32),
+            bottom.astype(np.int32),
+            (20, 20, 20),
+            5,
+        )
+
+    return image
+
+
+# ============================================================
+# Main
+# ============================================================
+
+def main() -> None:
+
+    print(
+        "CubeAI Cube Detector"
+    )
+
+    print(
+        "--------------------"
+    )
+
+    if len(sys.argv) >= 2:
+
+        image_path = sys.argv[1]
+
+        print(
+            f"Image: {image_path}"
+        )
+
+        image = cv2.imread(
+            image_path,
+            cv2.IMREAD_COLOR,
+        )
+
+        if image is None:
+
+            print(
+                f"ERROR: Could not load image: "
+                f"{image_path}"
+            )
+
+            return
+
+    else:
+
+        print(
+            "No image supplied."
+        )
+
+        print(
+            "Using synthetic test image."
+        )
+
+        image = create_test_cube_image()
+
+    print()
+
+    detector = CubeDetector()
+
+    try:
+
+        cube_face = detector.detect(
+            image
+        )
+
+        print(
+            "\nCube face detected!"
+        )
+
+        print(
+            f"Confidence: "
+            f"{cube_face.confidence:.2f}"
+        )
+
+        print(
+            "Corners:"
+        )
+
+        for index, corner in enumerate(
+            cube_face.corners
+        ):
+
+            print(
+                f"  {index}: "
+                f"({corner[0]:.1f}, "
+                f"{corner[1]:.1f})"
+            )
+
+        print(
+            f"Warped size: "
+            f"{cube_face.width}x"
+            f"{cube_face.height}"
+        )
+
+        # ----------------------------------------------------
+        # Debug image
+        # ----------------------------------------------------
+
+        debug = draw_cube_face(
+            image,
+            cube_face,
+        )
+
+        output_path = (
+            "cube_detector_debug.png"
+        )
+
+        cv2.imwrite(
+            output_path,
+            debug,
+        )
+
+        print(
+            f"\nDebug image written to "
+            f"{output_path}"
+        )
+
+        # ----------------------------------------------------
+        # Warped face
+        # ----------------------------------------------------
+
+        warped_path = (
+            "cube_face_warped.png"
+        )
+
+        cv2.imwrite(
+            warped_path,
+            cube_face.warped,
+        )
+
+        print(
+            f"Warped face written to "
+            f"{warped_path}"
+        )
+
+    except Exception as error:
+
+        print(
+            f"ERROR: {error}"
+        )
+
+        raise
+
+
+if __name__ == "__main__":
+    main()
+
