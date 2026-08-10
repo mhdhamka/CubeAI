@@ -1,4 +1,3 @@
-
 """
 CubeAI Cube Detector
 
@@ -23,6 +22,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import sys
+
 import cv2
 import numpy as np
 
@@ -73,13 +73,10 @@ class CubeDetector:
         max_area_ratio: float = 0.90,
         min_face_size: int = 250,
     ):
+
         self.output_size = output_size
         self.min_area_ratio = min_area_ratio
         self.max_area_ratio = max_area_ratio
-
-        # IMPORTANT:
-        # Individual stickers in your image are around 200x200.
-        # We do NOT want those to become the cube face.
         self.min_face_size = min_face_size
 
     # ========================================================
@@ -118,7 +115,8 @@ class CubeDetector:
         )
 
         # ====================================================
-        # Strategy 1
+        # Strategy 1:
+        # Quadrilateral detection
         # ====================================================
 
         candidates = self._find_quadrilateral_candidates(
@@ -140,7 +138,7 @@ class CubeDetector:
         )
 
         # ----------------------------------------------------
-        # Print candidate information for debugging
+        # Candidate debugging
         # ----------------------------------------------------
 
         if candidates:
@@ -194,7 +192,7 @@ class CubeDetector:
                 )
 
         # ====================================================
-        # Select best candidate
+        # Select best quadrilateral
         # ====================================================
 
         if candidates:
@@ -256,7 +254,8 @@ class CubeDetector:
             )
 
         # ====================================================
-        # Strategy 2: Sticker grid
+        # Strategy 2:
+        # Sticker grid detection
         # ====================================================
 
         print(
@@ -272,11 +271,14 @@ class CubeDetector:
         )
 
         if grid_result is None:
+
             raise RuntimeError(
                 "Could not detect a cube face."
             )
 
-        grid_corners, grid_confidence = grid_result
+        grid_corners, grid_confidence = (
+            grid_result
+        )
 
         print(
             "  Sticker grid detected!"
@@ -341,7 +343,6 @@ class CubeDetector:
                 high,
             )
 
-            # Connect broken cube borders.
             kernel = np.ones(
                 (7, 7),
                 np.uint8,
@@ -354,7 +355,9 @@ class CubeDetector:
                 iterations=2,
             )
 
-            edge_maps.append(edges)
+            edge_maps.append(
+                edges
+            )
 
         candidates = []
 
@@ -411,16 +414,8 @@ class CubeDetector:
             / image_area
         )
 
-        # ----------------------------------------------------
-        # Minimum area
-        # ----------------------------------------------------
-
         if area_ratio < self.min_area_ratio:
             return None
-
-        # ----------------------------------------------------
-        # Maximum area
-        # ----------------------------------------------------
 
         if area_ratio > self.max_area_ratio:
             return None
@@ -432,10 +427,6 @@ class CubeDetector:
 
         if perimeter <= 0:
             return None
-
-        # ----------------------------------------------------
-        # Approximate polygon
-        # ----------------------------------------------------
 
         approximation = cv2.approxPolyDP(
             contour,
@@ -468,18 +459,7 @@ class CubeDetector:
         if w <= 0 or h <= 0:
             return None
 
-        # ----------------------------------------------------
-        # IMPORTANT:
-        #
         # Reject individual stickers.
-        #
-        # Your bad candidate was approximately:
-        #
-        # 193 x 200
-        #
-        # That is a sticker, not the whole cube face.
-        # ----------------------------------------------------
-
         if (
             w < self.min_face_size
             or h < self.min_face_size
@@ -538,12 +518,11 @@ class CubeDetector:
             / max_side
         )
 
-        # A cube face should be reasonably square.
         if side_ratio < 0.45:
             return None
 
         # ----------------------------------------------------
-        # Exact image border rejection
+        # Border rejection
         # ----------------------------------------------------
 
         xs = corners[:, 0]
@@ -647,10 +626,6 @@ class CubeDetector:
 
         # ----------------------------------------------------
         # Area score
-        #
-        # Large cube faces are preferred.
-        #
-        # This is the key change.
         # ----------------------------------------------------
 
         area_score = min(
@@ -660,8 +635,6 @@ class CubeDetector:
 
         # ----------------------------------------------------
         # Size score
-        #
-        # A 600px cube should beat a 200px sticker.
         # ----------------------------------------------------
 
         size_score = min(
@@ -671,9 +644,6 @@ class CubeDetector:
 
         # ----------------------------------------------------
         # Center score
-        #
-        # Cubes are commonly near the center of the image.
-        # This is only a small weighting.
         # ----------------------------------------------------
 
         center_x = (
@@ -703,7 +673,8 @@ class CubeDetector:
         ) / image_height
 
         distance_from_center = np.sqrt(
-            dx * dx + dy * dy
+            dx * dx
+            + dy * dy
         )
 
         center_score = max(
@@ -714,9 +685,6 @@ class CubeDetector:
 
         # ----------------------------------------------------
         # Final score
-        #
-        # Area + size are deliberately strong.
-        # This prevents a single sticker from winning.
         # ----------------------------------------------------
 
         score = (
@@ -740,12 +708,20 @@ class CubeDetector:
 
     # ========================================================
     # Strategy 2: Sticker grid detection
+    #
+    # This fallback is designed specifically for cases where
+    # the cube's outer border is not detectable.
+    #
+    # Instead of trying to guess the grid from percentiles,
+    # we explicitly build 3 X positions and 3 Y positions.
     # ========================================================
 
     def _detect_sticker_grid(
         self,
         image: np.ndarray,
-    ) -> Optional[Tuple[np.ndarray, float]]:
+    ) -> Optional[
+        Tuple[np.ndarray, float]
+    ]:
 
         height, width = image.shape[:2]
 
@@ -760,17 +736,18 @@ class CubeDetector:
             0,
         )
 
+        all_candidates = []
+
         # ----------------------------------------------------
         # Multiple edge maps
         # ----------------------------------------------------
-
-        all_candidates = []
 
         for low, high in [
             (15, 60),
             (25, 90),
             (40, 120),
             (60, 160),
+            (80, 200),
         ]:
 
             edges = cv2.Canny(
@@ -815,7 +792,7 @@ class CubeDetector:
                     / image_area
                 )
 
-                # Sticker-sized regions.
+                # Sticker regions.
                 if ratio < 0.002:
                     continue
 
@@ -893,7 +870,7 @@ class CubeDetector:
                 )
 
         # ----------------------------------------------------
-        # Remove near-duplicate sticker candidates.
+        # Remove duplicates from multiple edge maps.
         # ----------------------------------------------------
 
         sticker_candidates = (
@@ -911,381 +888,682 @@ class CubeDetector:
             return None
 
         # ----------------------------------------------------
-        # Try to find a 3x3 cluster.
+        # Keep reasonable candidates.
+        #
+        # The largest 9-20 candidates are much more useful
+        # than dozens of weak background contours.
         # ----------------------------------------------------
 
-        best_grid = None
-        best_grid_score = -1.0
-
-        # Sort by size.
         sticker_candidates = sorted(
             sticker_candidates,
             key=lambda item: item["area"],
             reverse=True,
         )
 
-        # Limit noise.
         sticker_candidates = (
-            sticker_candidates[:40]
+            sticker_candidates[:25]
         )
 
-        for seed in sticker_candidates:
-
-            seed_x = seed["cx"]
-            seed_y = seed["cy"]
-
-            seed_size = (
-                (seed["w"] + seed["h"])
-                / 2.0
-            )
-
-            if seed_size <= 0:
-                continue
-
-            # Expected spacing between sticker centers.
-            spacing = seed_size * 1.15
-
-            nearby = []
-
-            for candidate in sticker_candidates:
-
-                dx = (
-                    candidate["cx"]
-                    - seed_x
-                )
-
-                dy = (
-                    candidate["cy"]
-                    - seed_y
-                )
-
-                distance = np.sqrt(
-                    dx * dx + dy * dy
-                )
-
-                if distance <= (
-                    spacing * 3.0
-                ):
-
-                    nearby.append(
-                        candidate
-                    )
-
-            if len(nearby) < 5:
-                continue
-
-            # ------------------------------------------------
-            # Estimate grid bounds.
-            # ------------------------------------------------
-
-            xs = np.array(
-                [
-                    item["cx"]
-                    for item in nearby
-                ],
-                dtype=np.float32,
-            )
-
-            ys = np.array(
-                [
-                    item["cy"]
-                    for item in nearby
-                ],
-                dtype=np.float32,
-            )
-
-            if len(xs) < 5:
-                continue
-
-            left = float(
-                np.percentile(
-                    xs,
-                    10,
-                )
-            )
-
-            right = float(
-                np.percentile(
-                    xs,
-                    90,
-                )
-            )
-
-            top = float(
-                np.percentile(
-                    ys,
-                    10,
-                )
-            )
-
-            bottom = float(
-                np.percentile(
-                    ys,
-                    90,
-                )
-            )
-
-            grid_width = (
-                right - left
-            )
-
-            grid_height = (
-                bottom - top
-            )
-
-            if (
-                grid_width <= 0
-                or grid_height <= 0
-            ):
-                continue
-
-            grid_aspect = (
-                grid_width
-                / grid_height
-            )
-
-            if (
-                grid_aspect < 0.60
-                or grid_aspect > 1.67
-            ):
-                continue
-
-            # ------------------------------------------------
-            # Estimate spacing.
-            # ------------------------------------------------
-
-            unique_x = sorted(
-                [
-                    float(x)
-                    for x in xs
-                ]
-            )
-
-            unique_y = sorted(
-                [
-                    float(y)
-                    for y in ys
-                ]
-            )
-
-            if (
-                len(unique_x) < 3
-                or len(unique_y) < 3
-            ):
-                continue
-
-            spacing_x = (
-                grid_width
-                / 2.0
-            )
-
-            spacing_y = (
-                grid_height
-                / 2.0
-            )
-
-            if (
-                spacing_x < 20
-                or spacing_y < 20
-            ):
-                continue
-
-            # ------------------------------------------------
-            # Estimate cube boundary.
-            # ------------------------------------------------
-
-            cube_left = (
-                left
-                - spacing_x * 0.60
-            )
-
-            cube_right = (
-                right
-                + spacing_x * 0.60
-            )
-
-            cube_top = (
-                top
-                - spacing_y * 0.60
-            )
-
-            cube_bottom = (
-                bottom
-                + spacing_y * 0.60
-            )
-
-            cube_left = max(
-                0,
-                cube_left,
-            )
-
-            cube_top = max(
-                0,
-                cube_top,
-            )
-
-            cube_right = min(
-                width - 1,
-                cube_right,
-            )
-
-            cube_bottom = min(
-                height - 1,
-                cube_bottom,
-            )
-
-            cube_width = (
-                cube_right
-                - cube_left
-            )
-
-            cube_height = (
-                cube_bottom
-                - cube_top
-            )
-
-            if (
-                cube_width < 250
-                or cube_height < 250
-            ):
-                continue
-
-            cube_area_ratio = (
-                cube_width
-                * cube_height
-                / image_area
-            )
-
-            if cube_area_ratio > 0.90:
-                continue
-
-            # ------------------------------------------------
-            # Count how many candidates actually fit into
-            # expected 3x3 positions.
-            # ------------------------------------------------
-
-            fitted = 0
-
-            for row in range(3):
-
-                expected_y = (
-                    top
-                    + (
-                        row - 1
-                    )
-                    * spacing_y
-                )
-
-                for col in range(3):
-
-                    expected_x = (
-                        left
-                        + (
-                            col - 1
-                        )
-                        * spacing_x
-                    )
-
-                    nearest_distance = float(
-                        "inf"
-                    )
-
-                    for candidate in nearby:
-
-                        dx = (
-                            candidate["cx"]
-                            - expected_x
-                        )
-
-                        dy = (
-                            candidate["cy"]
-                            - expected_y
-                        )
-
-                        distance = np.sqrt(
-                            dx * dx
-                            + dy * dy
-                        )
-
-                        nearest_distance = min(
-                            nearest_distance,
-                            distance,
-                        )
-
-                    if nearest_distance <= (
-                        max(
-                            spacing_x,
-                            spacing_y,
-                        )
-                        * 0.55
-                    ):
-
-                        fitted += 1
-
-            # ------------------------------------------------
-            # Need at least 7/9 positions.
-            # ------------------------------------------------
-
-            if fitted < 7:
-                continue
-
-            grid_score = (
-                fitted / 9.0
-            )
-
-            # Prefer larger grid.
-            grid_score += min(
-                cube_area_ratio,
-                0.40,
-            )
-
-            if grid_score > best_grid_score:
-
-                best_grid_score = (
-                    grid_score
-                )
-
-                best_grid = (
-                    np.array(
-                        [
-                            [
-                                cube_left,
-                                cube_top,
-                            ],
-                            [
-                                cube_right,
-                                cube_top,
-                            ],
-                            [
-                                cube_right,
-                                cube_bottom,
-                            ],
-                            [
-                                cube_left,
-                                cube_bottom,
-                            ],
-                        ],
-                        dtype=np.float32,
-                    ),
-                    fitted,
-                )
-
-        if best_grid is None:
+        # ----------------------------------------------------
+        # Find the best 3x3 arrangement.
+        # ----------------------------------------------------
+
+        best = self._find_best_3x3_grid(
+            sticker_candidates
+        )
+
+        if best is None:
             return None
 
-        corners, fitted = best_grid
+        grid_points, grid_score = best
 
-        confidence = min(
-            0.95,
-            0.65
+        # ----------------------------------------------------
+        # grid_points contains 9 centers:
+        #
+        # 0 1 2
+        # 3 4 5
+        # 6 7 8
+        # ----------------------------------------------------
+
+        xs = grid_points[:, 0].reshape(
+            3,
+            3,
+        )
+
+        ys = grid_points[:, 1].reshape(
+            3,
+            3,
+        )
+
+        # ----------------------------------------------------
+        # Average center positions for each row/column.
+        # This makes the estimate more stable when the cube
+        # is slightly perspective distorted.
+        # ----------------------------------------------------
+
+        column_x = np.mean(
+            xs,
+            axis=0,
+        )
+
+        row_y = np.mean(
+            ys,
+            axis=1,
+        )
+
+        # ----------------------------------------------------
+        # Estimate sticker spacing.
+        # ----------------------------------------------------
+
+        spacing_x = (
+            (
+                column_x[1]
+                - column_x[0]
+            )
             + (
-                fitted / 9.0
-            ) * 0.30,
+                column_x[2]
+                - column_x[1]
+            )
+        ) / 2.0
+
+        spacing_y = (
+            (
+                row_y[1]
+                - row_y[0]
+            )
+            + (
+                row_y[2]
+                - row_y[1]
+            )
+        ) / 2.0
+
+        if (
+            spacing_x <= 20
+            or spacing_y <= 20
+        ):
+            return None
+
+        # ----------------------------------------------------
+        # Estimate sticker dimensions.
+        # ----------------------------------------------------
+
+        sticker_widths = []
+        sticker_heights = []
+
+        for candidate in sticker_candidates:
+
+            sticker_widths.append(
+                candidate["w"]
+            )
+
+            sticker_heights.append(
+                candidate["h"]
+            )
+
+        median_sticker_width = float(
+            np.median(
+                sticker_widths
+            )
+        )
+
+        median_sticker_height = float(
+            np.median(
+                sticker_heights
+            )
+        )
+
+        # ----------------------------------------------------
+        # Important:
+        #
+        # The outer cube boundary is approximately half a
+        # sticker-spacing outside the outer sticker centers.
+        #
+        # We use the measured sticker size as a secondary
+        # estimate to make this robust.
+        # ----------------------------------------------------
+
+        half_cell_x = max(
+            spacing_x * 0.50,
+            median_sticker_width * 0.50,
+        )
+
+        half_cell_y = max(
+            spacing_y * 0.50,
+            median_sticker_height * 0.50,
+        )
+
+        cube_left = (
+            column_x[0]
+            - half_cell_x
+        )
+
+        cube_right = (
+            column_x[2]
+            + half_cell_x
+        )
+
+        cube_top = (
+            row_y[0]
+            - half_cell_y
+        )
+
+        cube_bottom = (
+            row_y[2]
+            + half_cell_y
+        )
+
+        # ----------------------------------------------------
+        # Clamp to image.
+        # ----------------------------------------------------
+
+        cube_left = max(
+            0.0,
+            cube_left,
+        )
+
+        cube_top = max(
+            0.0,
+            cube_top,
+        )
+
+        cube_right = min(
+            float(width - 1),
+            cube_right,
+        )
+
+        cube_bottom = min(
+            float(height - 1),
+            cube_bottom,
+        )
+
+        cube_width = (
+            cube_right
+            - cube_left
+        )
+
+        cube_height = (
+            cube_bottom
+            - cube_top
+        )
+
+        if (
+            cube_width < 250
+            or cube_height < 250
+        ):
+            return None
+
+        # ----------------------------------------------------
+        # Cube face should be approximately square.
+        # ----------------------------------------------------
+
+        cube_aspect = (
+            cube_width
+            / cube_height
+        )
+
+        if (
+            cube_aspect < 0.65
+            or cube_aspect > 1.55
+        ):
+            return None
+
+        # ----------------------------------------------------
+        # Reject if the estimated face is basically the
+        # entire image.
+        # ----------------------------------------------------
+
+        image_area = (
+            width * height
+        )
+
+        cube_area_ratio = (
+            cube_width
+            * cube_height
+            / image_area
+        )
+
+        if cube_area_ratio > 0.90:
+            return None
+
+        # ----------------------------------------------------
+        # Print useful debugging information.
+        # ----------------------------------------------------
+
+        print(
+            f"  Grid spacing: "
+            f"{spacing_x:.1f} x "
+            f"{spacing_y:.1f}"
+        )
+
+        print(
+            f"  Estimated cube size: "
+            f"{cube_width:.0f}x"
+            f"{cube_height:.0f}"
+        )
+
+        print(
+            f"  Grid score: "
+            f"{grid_score:.3f}"
+        )
+
+        # ----------------------------------------------------
+        # Return face corners.
+        # ----------------------------------------------------
+
+        corners = np.array(
+            [
+                [
+                    cube_left,
+                    cube_top,
+                ],
+                [
+                    cube_right,
+                    cube_top,
+                ],
+                [
+                    cube_right,
+                    cube_bottom,
+                ],
+                [
+                    cube_left,
+                    cube_bottom,
+                ],
+            ],
+            dtype=np.float32,
+        )
+
+        # ----------------------------------------------------
+        # Convert grid score into confidence.
+        # ----------------------------------------------------
+
+        confidence = float(
+            min(
+                0.95,
+                max(
+                    0.70,
+                    0.70
+                    + grid_score * 0.25,
+                ),
+            )
         )
 
         return (
             corners,
-            float(confidence),
+            confidence,
+        )
+
+    # ========================================================
+    # Find best 3x3 grid
+    # ========================================================
+
+    def _find_best_3x3_grid(
+        self,
+        candidates,
+    ):
+
+        if len(candidates) < 5:
+            return None
+
+        # ----------------------------------------------------
+        # Candidate center coordinates.
+        # ----------------------------------------------------
+
+        points = np.array(
+            [
+                [
+                    candidate["cx"],
+                    candidate["cy"],
+                ]
+                for candidate in candidates
+            ],
+            dtype=np.float32,
+        )
+
+        if len(points) < 5:
+            return None
+
+        best_grid = None
+        best_score = -1.0
+
+        # ----------------------------------------------------
+        # We try each candidate as a possible center sticker.
+        #
+        # This works well because a Rubik's Cube face has a
+        # very strong regular 3x3 geometric pattern.
+        # ----------------------------------------------------
+
+        for center_index, center in enumerate(
+            points
+        ):
+
+            cx = float(center[0])
+            cy = float(center[1])
+
+            # ------------------------------------------------
+            # Estimate nearest-neighbor distances.
+            # ------------------------------------------------
+
+            distances = []
+
+            for index, point in enumerate(
+                points
+            ):
+
+                if index == center_index:
+                    continue
+
+                distance = float(
+                    np.linalg.norm(
+                        point - center
+                    )
+                )
+
+                distances.append(
+                    distance
+                )
+
+            if len(distances) < 4:
+                continue
+
+            distances.sort()
+
+            # The closest neighbors to the center should
+            # normally be adjacent stickers.
+            spacing_guess = float(
+                np.median(
+                    distances[:4]
+                )
+            )
+
+            if spacing_guess < 30:
+                continue
+
+            # ------------------------------------------------
+            # Build expected 3x3 positions.
+            # ------------------------------------------------
+
+            expected = []
+
+            for row in range(3):
+
+                for col in range(3):
+
+                    expected_x = (
+                        cx
+                        + (
+                            col - 1
+                        )
+                        * spacing_guess
+                    )
+
+                    expected_y = (
+                        cy
+                        + (
+                            row - 1
+                        )
+                        * spacing_guess
+                    )
+
+                    expected.append(
+                        [
+                            expected_x,
+                            expected_y,
+                        ]
+                    )
+
+            expected = np.array(
+                expected,
+                dtype=np.float32,
+            )
+
+            matched = []
+
+            used = set()
+
+            total_error = 0.0
+
+            valid = True
+
+            # ------------------------------------------------
+            # Match every expected grid position to the
+            # nearest real sticker.
+            # ------------------------------------------------
+
+            for expected_point in expected:
+
+                best_index = None
+                best_distance = float(
+                    "inf"
+                )
+
+                for index, point in enumerate(
+                    points
+                ):
+
+                    if index in used:
+                        continue
+
+                    distance = float(
+                        np.linalg.norm(
+                            point
+                            - expected_point
+                        )
+                    )
+
+                    if distance < best_distance:
+
+                        best_distance = (
+                            distance
+                        )
+
+                        best_index = index
+
+                # Allow fairly generous perspective / camera
+                # error.
+                tolerance = max(
+                    spacing_guess * 0.40,
+                    45.0,
+                )
+
+                if (
+                    best_index is None
+                    or best_distance > tolerance
+                ):
+
+                    valid = False
+                    break
+
+                used.add(
+                    best_index
+                )
+
+                matched.append(
+                    points[best_index]
+                )
+
+                total_error += (
+                    best_distance
+                )
+
+            if not valid:
+                continue
+
+            # ------------------------------------------------
+            # We need all 9 stickers for a reliable cube
+            # face estimate.
+            # ----------------------------------------------------
+
+            if len(matched) != 9:
+                continue
+
+            matched = np.array(
+                matched,
+                dtype=np.float32,
+            )
+
+            average_error = (
+                total_error / 9.0
+            )
+
+            error_score = max(
+                0.0,
+                1.0
+                - (
+                    average_error
+                    / max(
+                        spacing_guess,
+                        1.0,
+                    )
+                ),
+            )
+
+            # ------------------------------------------------
+            # Check that the grid covers a reasonable area.
+            # ------------------------------------------------
+
+            min_x = float(
+                np.min(
+                    matched[:, 0]
+                )
+            )
+
+            max_x = float(
+                np.max(
+                    matched[:, 0]
+                )
+            )
+
+            min_y = float(
+                np.min(
+                    matched[:, 1]
+                )
+            )
+
+            max_y = float(
+                np.max(
+                    matched[:, 1]
+                )
+            )
+
+            span_x = (
+                max_x - min_x
+            )
+
+            span_y = (
+                max_y - min_y
+            )
+
+            if (
+                span_x < spacing_guess * 1.3
+                or span_y < spacing_guess * 1.3
+            ):
+                continue
+
+            span_ratio = (
+                min(
+                    span_x,
+                    span_y,
+                )
+                / max(
+                    span_x,
+                    span_y,
+                )
+            )
+
+            if span_ratio < 0.60:
+                continue
+
+            # ------------------------------------------------
+            # Prefer larger and more regular grids.
+            # ------------------------------------------------
+
+            size_score = min(
+                (
+                    span_x
+                    + span_y
+                )
+                / 1200.0,
+                1.0,
+            )
+
+            grid_score = (
+                error_score * 0.70
+                + span_ratio * 0.15
+                + size_score * 0.15
+            )
+
+            if grid_score > best_score:
+
+                best_score = (
+                    grid_score
+                )
+
+                # ------------------------------------------------
+                # Reorder matched points into actual row/column
+                # order instead of relying on matching order.
+                # ------------------------------------------------
+
+                ordered_grid = (
+                    self._order_grid_points(
+                        matched
+                    )
+                )
+
+                best_grid = (
+                    ordered_grid,
+                    grid_score,
+                )
+
+        return best_grid
+
+    # ========================================================
+    # Order 9 sticker centers into:
+    #
+    # 0 1 2
+    # 3 4 5
+    # 6 7 8
+    # ========================================================
+
+    def _order_grid_points(
+        self,
+        points: np.ndarray,
+    ) -> np.ndarray:
+
+        points = np.asarray(
+            points,
+            dtype=np.float32,
+        )
+
+        # Sort by Y first.
+        sorted_by_y = points[
+            np.argsort(
+                points[:, 1]
+            )
+        ]
+
+        rows = [
+            sorted_by_y[0:3],
+            sorted_by_y[3:6],
+            sorted_by_y[6:9],
+        ]
+
+        ordered = []
+
+        for row in rows:
+
+            row = row[
+                np.argsort(
+                    row[:, 0]
+                )
+            ]
+
+            ordered.extend(
+                row.tolist()
+            )
+
+        return np.array(
+            ordered,
+            dtype=np.float32,
         )
 
     # ========================================================
@@ -1891,4 +2169,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
