@@ -7,18 +7,18 @@ Rubik's Cube configuration.
 
 The validator checks:
 
-    1. Cube structure
-    2. Valid face names
-    3. Valid colors
-    4. Exactly 9 stickers of each color
-    5. Unique center colors
-    6. Standard center color scheme
-    7. Valid corner cubies
-    8. Valid edge cubies
-    9. Corner orientation
-    10. Edge orientation
-    11. Corner permutation parity
-    12. Edge permutation parity
+1. Cube structure
+2. Valid face names
+3. Valid colors
+4. Exactly 9 stickers of each color
+5. Unique center colors
+6. Standard center color scheme
+7. Valid corner cubies
+8. Valid edge cubies
+9. Corner orientation
+10. Edge orientation
+11. Corner permutation parity
+12. Edge permutation parity
 
 Expected color scheme:
 
@@ -129,6 +129,7 @@ VALID_COLORS = {
 
 
 # Standard CubeAI color scheme.
+
 EXPECTED_CENTERS = {
     "U": "white",
     "R": "red",
@@ -145,20 +146,22 @@ EXPECTED_CENTERS = {
 
 # Corners:
 #
-#     UFR
-#     URB
-#     UBL
-#     ULF
-#     DFR
-#     DRB
-#     DBL
-#     DLF
+# UFR
+# URB
+# UBL
+# ULF
+# DFR
+# DRB
+# DBL
+# DLF
 #
-# IMPORTANT:
-# The order of the three facelets is NOT assumed to be
-# U/D, F/B, R/L.
+# The order of the facelets is important.
 #
-# The actual face name is used when calculating orientation.
+# The four U-layer corner definitions use one handedness.
+# The four D-layer corner definitions use the opposite handedness.
+#
+# _corner_orientation() compensates for this so that all eight
+# corner positions use one consistent orientation convention.
 
 CORNER_FACELETS = (
     (
@@ -206,18 +209,18 @@ CORNER_FACELETS = (
 
 # Edges:
 #
-#     UF
-#     UR
-#     UB
-#     UL
-#     FR
-#     BR
-#     BL
-#     FL
-#     DF
-#     DR
-#     DB
-#     DL
+# UF
+# UR
+# UB
+# UL
+# FR
+# BR
+# BL
+# FL
+# DF
+# DR
+# DB
+# DL
 
 EDGE_FACELETS = (
     (
@@ -341,8 +344,12 @@ class ValidationResult:
             "warnings": self.warnings,
             "sticker_count": self.sticker_count,
             "color_counts": self.color_counts or {},
-            "corner_orientation_sum": self.corner_orientation_sum,
-            "edge_orientation_sum": self.edge_orientation_sum,
+            "corner_orientation_sum": (
+                self.corner_orientation_sum
+            ),
+            "edge_orientation_sum": (
+                self.edge_orientation_sum
+            ),
             "corner_permutation_parity": (
                 self.corner_permutation_parity
             ),
@@ -408,13 +415,9 @@ class CubeValidator:
         # Structural validation
         # ====================================================================
 
-        structure_errors = self._validate_structure(
-            cube
-        )
+        structure_errors = self._validate_structure(cube)
 
-        errors.extend(
-            structure_errors
-        )
+        errors.extend(structure_errors)
 
         if errors:
             return ValidationResult(
@@ -427,21 +430,15 @@ class CubeValidator:
         # Flatten stickers
         # ====================================================================
 
-        stickers = self._flatten_cube(
-            cube
-        )
+        stickers = self._flatten_cube(cube)
 
-        sticker_count = len(
-            stickers
-        )
+        sticker_count = len(stickers)
 
         # ====================================================================
         # Color validation
         # ====================================================================
 
-        color_counts = self._count_colors(
-            stickers
-        )
+        color_counts = self._count_colors(stickers)
 
         errors.extend(
             self._validate_colors(
@@ -455,9 +452,7 @@ class CubeValidator:
         # ====================================================================
 
         errors.extend(
-            self._validate_centers(
-                cube
-            )
+            self._validate_centers(cube)
         )
 
         if errors:
@@ -477,13 +472,9 @@ class CubeValidator:
             corner_errors,
             corner_orientations,
             corner_permutation,
-        ) = self._validate_corners(
-            cube
-        )
+        ) = self._validate_corners(cube)
 
-        errors.extend(
-            corner_errors
-        )
+        errors.extend(corner_errors)
 
         # ====================================================================
         # Edge validation
@@ -493,13 +484,9 @@ class CubeValidator:
             edge_errors,
             edge_orientations,
             edge_permutation,
-        ) = self._validate_edges(
-            cube
-        )
+        ) = self._validate_edges(cube)
 
-        errors.extend(
-            edge_errors
-        )
+        errors.extend(edge_errors)
 
         # ====================================================================
         # Orientation constraints
@@ -579,10 +566,7 @@ class CubeValidator:
 
         errors: list[str] = []
 
-        if not hasattr(
-            cube,
-            "faces",
-        ):
+        if not hasattr(cube, "faces"):
             errors.append(
                 "CubeState does not contain a faces attribute."
             )
@@ -590,41 +574,28 @@ class CubeValidator:
 
         faces = cube.faces
 
-        if not isinstance(
-            faces,
-            dict,
-        ):
+        if not isinstance(faces, dict):
             errors.append(
                 "CubeState.faces must be a dictionary."
             )
             return errors
 
-        actual_faces = set(
-            faces.keys()
-        )
-
-        expected_faces = set(
-            FACE_NAMES
-        )
+        actual_faces = set(faces.keys())
+        expected_faces = set(FACE_NAMES)
 
         missing = expected_faces - actual_faces
-
         extra = actual_faces - expected_faces
 
         if missing:
             errors.append(
                 "Missing cube faces: "
-                + ", ".join(
-                    sorted(missing)
-                )
+                + ", ".join(sorted(missing))
             )
 
         if extra:
             errors.append(
                 "Unexpected cube faces: "
-                + ", ".join(
-                    sorted(extra)
-                )
+                + ", ".join(sorted(extra))
             )
 
         if len(actual_faces) != EXPECTED_FACE_COUNT:
@@ -640,10 +611,7 @@ class CubeValidator:
 
             grid = faces[face]
 
-            if not isinstance(
-                grid,
-                list,
-            ):
+            if not isinstance(grid, list):
                 errors.append(
                     f"Face {face} must be a 3x3 list."
                 )
@@ -658,10 +626,7 @@ class CubeValidator:
 
             for row_index, row in enumerate(grid):
 
-                if not isinstance(
-                    row,
-                    list,
-                ):
+                if not isinstance(row, list):
                     errors.append(
                         f"Face {face} row {row_index} "
                         "must be a list."
@@ -697,7 +662,6 @@ class CubeValidator:
             for row in grid:
 
                 for color in row:
-
                     stickers.append(
                         str(color).lower()
                     )
@@ -718,19 +682,13 @@ class CubeValidator:
 
         counts = {
             color: 0
-            for color in sorted(
-                VALID_COLORS
-            )
+            for color in sorted(VALID_COLORS)
         }
 
         for sticker in stickers:
 
             counts[sticker] = (
-                counts.get(
-                    sticker,
-                    0,
-                )
-                + 1
+                counts.get(sticker, 0) + 1
             )
 
         return counts
@@ -751,7 +709,6 @@ class CubeValidator:
         errors: list[str] = []
 
         if len(stickers) != EXPECTED_STICKER_COUNT:
-
             errors.append(
                 f"Expected {EXPECTED_STICKER_COUNT} stickers, "
                 f"found {len(stickers)}."
@@ -766,25 +723,16 @@ class CubeValidator:
         )
 
         if invalid_colors:
-
             errors.append(
                 "Invalid colors found: "
-                + ", ".join(
-                    invalid_colors
-                )
+                + ", ".join(invalid_colors)
             )
 
-        for color in sorted(
-            VALID_COLORS
-        ):
+        for color in sorted(VALID_COLORS):
 
-            count = color_counts.get(
-                color,
-                0,
-            )
+            count = color_counts.get(color, 0)
 
             if count != EXPECTED_COLOR_COUNT:
-
                 errors.append(
                     f"Color '{color}' appears "
                     f"{count} times; expected "
@@ -817,29 +765,19 @@ class CubeValidator:
 
             centers[face] = color
 
-        center_colors = list(
-            centers.values()
-        )
+        center_colors = list(centers.values())
 
-        if len(
-            set(center_colors)
-        ) != EXPECTED_FACE_COUNT:
-
+        if len(set(center_colors)) != EXPECTED_FACE_COUNT:
             errors.append(
                 "Cube centers must contain "
                 "six unique colors."
             )
 
-        for face, expected_color in (
-            EXPECTED_CENTERS.items()
-        ):
+        for face, expected_color in EXPECTED_CENTERS.items():
 
-            actual_color = centers.get(
-                face
-            )
+            actual_color = centers.get(face)
 
             if actual_color != expected_color:
-
                 errors.append(
                     f"Center mismatch on face {face}: "
                     f"expected '{expected_color}', "
@@ -871,16 +809,11 @@ class CubeValidator:
         """
 
         errors: list[str] = []
-
         orientations: list[int] = []
-
         permutation: list[int] = []
-
         seen: set[int] = set()
 
-        for index, facelets in enumerate(
-            CORNER_FACELETS
-        ):
+        for index, facelets in enumerate(CORNER_FACELETS):
 
             colors = [
                 self._get_sticker(
@@ -889,13 +822,10 @@ class CubeValidator:
                     row,
                     col,
                 )
-                for face, row, col
-                in facelets
+                for face, row, col in facelets
             ]
 
-            color_set = frozenset(
-                colors
-            )
+            color_set = frozenset(colors)
 
             if color_set not in CORNER_COLORS:
 
@@ -915,33 +845,23 @@ class CubeValidator:
             )
 
             if cubie_index in seen:
-
                 errors.append(
                     "Duplicate corner cubie detected: "
                     f"{sorted(color_set)}"
                 )
 
-            seen.add(
-                cubie_index
-            )
+            seen.add(cubie_index)
 
-            permutation.append(
-                cubie_index
-            )
+            permutation.append(cubie_index)
 
             orientation = self._corner_orientation(
                 colors,
                 facelets,
             )
 
-            orientations.append(
-                orientation
-            )
+            orientations.append(orientation)
 
-        if len(seen) != len(
-            CORNER_COLORS
-        ):
-
+        if len(seen) != len(CORNER_COLORS):
             errors.append(
                 "Cube does not contain exactly "
                 "one of each corner cubie."
@@ -967,67 +887,114 @@ class CubeValidator:
         ],
     ) -> int:
         """
-        Determine the orientation of a corner.
+        Determine corner orientation using cyclic sticker order.
 
-        The previous implementation incorrectly assumed:
+        This is the important part of the validator.
 
-            index 0 = U/D
-            index 1 = F/B
-            index 2 = R/L
+        A corner's orientation cannot be determined reliably by
+        simply checking whether the U/D sticker is on:
 
-        That assumption is not valid for every corner.
+            U/D -> 0
+            F/B -> 1
+            R/L -> 2
 
-        For example:
+        because the four D-layer corner definitions have the
+        opposite handedness from the four U-layer definitions.
 
-            UFR -> U, F, R
-            URB -> U, R, B
-            UBL -> U, B, L
-            ULF -> U, L, F
+        Instead:
 
-        Therefore the actual face containing the U/D color
-        must be inspected.
+        1. Build the canonical color order from the corner's
+           face order.
+        2. Compare the current sticker order against that
+           canonical order.
+        3. Determine which cyclic rotation occurred.
+        4. Reverse the orientation for D-layer corners because
+           their facelet order is opposite-handed.
 
-        Orientation convention:
+        Returns:
 
-            0 = U/D color is on U/D
-            1 = U/D color is on F/B
-            2 = U/D color is on R/L
+            0 = correctly oriented
+            1 = clockwise twist
+            2 = counter-clockwise twist
         """
 
-        for color, facelet in zip(
-            colors,
-            facelets,
-        ):
+        # --------------------------------------------------------------------
+        # Build canonical colors for this exact corner position.
+        #
+        # Example:
+        #
+        # UFR -> white, green, red
+        # URB -> white, red, blue
+        # DFR -> yellow, green, red
+        #
+        # These come directly from EXPECTED_CENTERS.
+        # --------------------------------------------------------------------
 
-            if color not in (
-                "white",
-                "yellow",
-            ):
-                continue
+        canonical_colors = tuple(
+            EXPECTED_CENTERS[face]
+            for face, _, _ in facelets
+        )
 
-            face = facelet[0]
+        current_colors = tuple(colors)
 
-            if face in (
-                "U",
-                "D",
-            ):
-                return 0
+        # --------------------------------------------------------------------
+        # The current colors of a physically valid corner must be one of
+        # the three cyclic rotations of its canonical color order.
+        #
+        # Example for UFR:
+        #
+        # canonical:
+        #
+        #     (white, green, red)
+        #
+        # valid orientations:
+        #
+        #     (white, green, red) -> 0
+        #     (green, red, white) -> 1
+        #     (red, white, green) -> 2
+        #
+        # --------------------------------------------------------------------
 
-            if face in (
-                "F",
-                "B",
-            ):
-                return 1
+        for orientation in range(3):
 
-            if face in (
-                "R",
-                "L",
-            ):
-                return 2
+            rotated = (
+                canonical_colors[orientation:]
+                + canonical_colors[:orientation]
+            )
 
-        # This should only occur if the corner itself is
-        # malformed. The cubie validation will report that
-        # separately.
+            if current_colors == rotated:
+
+                # ------------------------------------------------------------
+                # U-layer corners use the same handedness as the canonical
+                # facelet order.
+                # ------------------------------------------------------------
+
+                if facelets[0][0] == "U":
+                    return orientation
+
+                # ------------------------------------------------------------
+                # D-layer corners use the opposite handedness.
+                #
+                # Therefore:
+                #
+                #     1 -> 2
+                #     2 -> 1
+                #
+                # while 0 remains 0.
+                #
+                # This is equivalent to:
+                #
+                #     (-orientation) % 3
+                # ------------------------------------------------------------
+
+                return (-orientation) % 3
+
+        # --------------------------------------------------------------------
+        # A valid corner should always match one of the three cyclic
+        # rotations. If it doesn't, return 0 because the cubie identity
+        # validation will already report the malformed corner.
+        # --------------------------------------------------------------------
+
         return 0
 
     # ========================================================================
@@ -1047,16 +1014,11 @@ class CubeValidator:
         """
 
         errors: list[str] = []
-
         orientations: list[int] = []
-
         permutation: list[int] = []
-
         seen: set[int] = set()
 
-        for index, facelets in enumerate(
-            EDGE_FACELETS
-        ):
+        for index, facelets in enumerate(EDGE_FACELETS):
 
             colors = [
                 self._get_sticker(
@@ -1065,13 +1027,10 @@ class CubeValidator:
                     row,
                     col,
                 )
-                for face, row, col
-                in facelets
+                for face, row, col in facelets
             ]
 
-            color_set = frozenset(
-                colors
-            )
+            color_set = frozenset(colors)
 
             if color_set not in EDGE_COLORS:
 
@@ -1091,33 +1050,23 @@ class CubeValidator:
             )
 
             if cubie_index in seen:
-
                 errors.append(
                     "Duplicate edge cubie detected: "
                     f"{sorted(color_set)}"
                 )
 
-            seen.add(
-                cubie_index
-            )
+            seen.add(cubie_index)
 
-            permutation.append(
-                cubie_index
-            )
+            permutation.append(cubie_index)
 
             orientation = self._edge_orientation(
                 colors,
                 facelets,
             )
 
-            orientations.append(
-                orientation
-            )
+            orientations.append(orientation)
 
-        if len(seen) != len(
-            EDGE_COLORS
-        ):
-
+        if len(seen) != len(EDGE_COLORS):
             errors.append(
                 "Cube does not contain exactly "
                 "one of each edge cubie."
@@ -1162,17 +1111,16 @@ class CubeValidator:
             1 = flipped
         """
 
-        first_face = facelets[0][0]
-        second_face = facelets[1][0]
+        faces = (
+            facelets[0][0],
+            facelets[1][0],
+        )
 
-        # --------------------------------------------------------------------
+        # ====================================================================
         # Edges containing white/yellow
-        # --------------------------------------------------------------------
+        # ====================================================================
 
-        if (
-            "white" in colors
-            or "yellow" in colors
-        ):
+        if "white" in colors or "yellow" in colors:
 
             target = (
                 "white"
@@ -1180,33 +1128,21 @@ class CubeValidator:
                 else "yellow"
             )
 
-            for color, face in zip(
-                colors,
-                (
-                    first_face,
-                    second_face,
-                ),
-            ):
+            for color, face in zip(colors, faces):
 
                 if (
                     color == target
-                    and face in (
-                        "U",
-                        "D",
-                    )
+                    and face in ("U", "D")
                 ):
                     return 0
 
             return 1
 
-        # --------------------------------------------------------------------
+        # ====================================================================
         # Middle-layer edges
-        # --------------------------------------------------------------------
+        # ====================================================================
 
-        if (
-            "green" in colors
-            or "blue" in colors
-        ):
+        if "green" in colors or "blue" in colors:
 
             target = (
                 "green"
@@ -1214,20 +1150,11 @@ class CubeValidator:
                 else "blue"
             )
 
-            for color, face in zip(
-                colors,
-                (
-                    first_face,
-                    second_face,
-                ),
-            ):
+            for color, face in zip(colors, faces):
 
                 if (
                     color == target
-                    and face in (
-                        "F",
-                        "B",
-                    )
+                    and face in ("F", "B")
                 ):
                     return 0
 
@@ -1271,27 +1198,16 @@ class CubeValidator:
             1 = odd
         """
 
-        if any(
-            value < 0
-            for value in permutation
-        ):
+        if any(value < 0 for value in permutation):
             return 0
 
         inversions = 0
 
-        for i in range(
-            len(permutation)
-        ):
+        for i in range(len(permutation)):
 
-            for j in range(
-                i + 1,
-                len(permutation),
-            ):
+            for j in range(i + 1, len(permutation)):
 
-                if (
-                    permutation[i]
-                    > permutation[j]
-                ):
+                if permutation[i] > permutation[j]:
                     inversions += 1
 
         return inversions % 2
@@ -1310,9 +1226,7 @@ def validate_cube(
 
     validator = CubeValidator()
 
-    return validator.validate(
-        cube
-    )
+    return validator.validate(cube)
 
 
 def is_valid_cube(
@@ -1322,9 +1236,7 @@ def is_valid_cube(
     Return True if the cube is physically valid.
     """
 
-    return validate_cube(
-        cube
-    ).valid
+    return validate_cube(cube).valid
 
 
 # ============================================================================
@@ -1339,7 +1251,6 @@ def _create_solved_cube() -> CubeState:
     """
 
     if CubeState is None:
-
         raise RuntimeError(
             "CubeState could not be imported: "
             f"{CUBE_STATE_IMPORT_ERROR}"
@@ -1362,9 +1273,7 @@ def _create_solved_cube() -> CubeState:
             [color, color, color],
         ]
 
-    return CubeState(
-        faces
-    )
+    return CubeState(faces)
 
 
 # ============================================================================
@@ -1373,14 +1282,8 @@ def _create_solved_cube() -> CubeState:
 
 def main() -> None:
 
-    print(
-        "CubeAI Cube Validator"
-    )
-
-    print(
-        "---------------------"
-    )
-
+    print("CubeAI Cube Validator")
+    print("---------------------")
     print()
 
     # ========================================================================
@@ -1389,13 +1292,9 @@ def main() -> None:
 
     cube = _create_solved_cube()
 
-    result = validate_cube(
-        cube
-    )
+    result = validate_cube(cube)
 
-    print(
-        "Solved cube:"
-    )
+    print("Solved cube:")
 
     print(
         f"  Valid: {result.valid}"
@@ -1432,16 +1331,10 @@ def main() -> None:
     if result.errors:
 
         print()
-
-        print(
-            "Errors:"
-        )
+        print("Errors:")
 
         for error in result.errors:
-
-            print(
-                f"  - {error}"
-            )
+            print(f"  - {error}")
 
     print()
 
@@ -1451,9 +1344,7 @@ def main() -> None:
 
     try:
 
-        from move import (
-            apply_algorithm,
-        )
+        from move import apply_algorithm
 
         algorithm = "R U R' U' F2 L D"
 
@@ -1466,9 +1357,7 @@ def main() -> None:
             scrambled
         )
 
-        print(
-            "Scrambled cube:"
-        )
+        print("Scrambled cube:")
 
         print(
             f"  Algorithm: {algorithm}"
@@ -1506,18 +1395,10 @@ def main() -> None:
         if scrambled_result.errors:
 
             print()
+            print("Errors:")
 
-            print(
-                "Errors:"
-            )
-
-            for error in (
-                scrambled_result.errors
-            ):
-
-                print(
-                    f"  - {error}"
-                )
+            for error in scrambled_result.errors:
+                print(f"  - {error}")
 
     except Exception as exc:
 
@@ -1537,17 +1418,13 @@ def main() -> None:
 
     invalid_cube = _create_solved_cube()
 
-    invalid_cube.faces["U"][0][0] = (
-        "purple"
-    )
+    invalid_cube.faces["U"][0][0] = "purple"
 
     invalid_result = validate_cube(
         invalid_cube
     )
 
-    print(
-        "Invalid color test:"
-    )
+    print("Invalid color test:")
 
     print(
         f"  Rejected: "
@@ -1562,17 +1439,13 @@ def main() -> None:
 
     invalid_cube = _create_solved_cube()
 
-    invalid_cube.faces["U"][0][0] = (
-        "yellow"
-    )
+    invalid_cube.faces["U"][0][0] = "yellow"
 
     invalid_result = validate_cube(
         invalid_cube
     )
 
-    print(
-        "Invalid color-count test:"
-    )
+    print("Invalid color-count test:")
 
     print(
         f"  Rejected: "
@@ -1589,9 +1462,7 @@ def main() -> None:
         _create_solved_cube()
     )
 
-    print(
-        "Solved cube validation:"
-    )
+    print("Solved cube validation:")
 
     print(
         f"  PASS: {solved_test.valid}"
@@ -1599,9 +1470,7 @@ def main() -> None:
 
     print()
 
-    print(
-        "Cube validator ready!"
-    )
+    print("Cube validator ready!")
 
 
 # ============================================================================
