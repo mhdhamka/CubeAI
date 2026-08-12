@@ -1,8 +1,15 @@
 """
 CubeAI - Cube Solver
 
-Solves a physically valid Rubik's Cube using the existing CubeAI
-CubeState, Move Engine, and Cube Validator.
+Solves a physically valid Rubik's Cube using:
+
+    CubeState
+        ↓
+    CubeValidator
+        ↓
+    Kociemba two-phase solver
+        ↓
+    Move Engine verification
 
 Architecture:
 
@@ -23,7 +30,8 @@ Architecture:
 This module is responsible for:
 
     - Validating a cube before solving
-    - Searching for a solution
+    - Converting CubeState to standard cube notation
+    - Solving using a two-phase Rubik's Cube solver
     - Returning standard Rubik's Cube notation
     - Verifying the generated solution
     - Providing a simple CubeAI solver API
@@ -32,7 +40,7 @@ It does NOT:
 
     - Scan a webcam
     - Detect stickers
-    - Solve colors directly from images
+    - Detect colors from images
     - Modify the original CubeState
 
 Move notation:
@@ -56,20 +64,21 @@ Move notation:
     B'
     B2
 
-The solver uses the move engine from:
+Color scheme:
 
-    ai/engine/move.py
-
-and validation from:
-
-    ai/engine/cubeValidator.py
+    U = white
+    R = red
+    F = green
+    D = yellow
+    L = orange
+    B = blue
 """
 
 from __future__ import annotations
 
 import os
+import re
 import sys
-from collections import deque
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -106,8 +115,6 @@ try:
         apply_moves,
         apply_algorithm,
         format_algorithm,
-        parse_algorithm,
-        inverse_algorithm,
     )
 except ImportError as exc:
     Move = None
@@ -115,8 +122,6 @@ except ImportError as exc:
     apply_moves = None
     apply_algorithm = None
     format_algorithm = None
-    parse_algorithm = None
-    inverse_algorithm = None
     MOVE_IMPORT_ERROR = str(exc)
 else:
     MOVE_IMPORT_ERROR = None
@@ -125,16 +130,31 @@ else:
 try:
     from cubeValidator import (
         CubeValidator,
-        ValidationResult,
         validate_cube,
     )
 except ImportError as exc:
     CubeValidator = None
-    ValidationResult = None
     validate_cube = None
     VALIDATOR_IMPORT_ERROR = str(exc)
 else:
     VALIDATOR_IMPORT_ERROR = None
+
+
+# ============================================================================
+# Optional Kociemba solver
+# ============================================================================
+
+try:
+    import kociemba
+
+    KOCIEMBA_AVAILABLE = True
+    KOCIEMBA_IMPORT_ERROR = None
+
+except ImportError as exc:
+
+    kociemba = None
+    KOCIEMBA_AVAILABLE = False
+    KOCIEMBA_IMPORT_ERROR = str(exc)
 
 
 # ============================================================================
@@ -151,39 +171,37 @@ FACE_NAMES = (
 )
 
 
-# Standard move order.
+FACE_COLORS = {
+    "U": "white",
+    "R": "red",
+    "F": "green",
+    "D": "yellow",
+    "L": "orange",
+    "B": "blue",
+}
 
-ALL_MOVES = (
+
+# Standard Kociemba face order.
+
+KOCIEMBA_FACES = (
     "U",
-    "U'",
-    "U2",
     "R",
-    "R'",
-    "R2",
     "F",
-    "F'",
-    "F2",
     "D",
-    "D'",
-    "D2",
     "L",
-    "L'",
-    "L2",
     "B",
-    "B'",
-    "B2",
 )
 
 
-# Opposite faces.
+# Color → Kociemba face letter.
 
-OPPOSITE_FACE = {
-    "U": "D",
-    "D": "U",
-    "R": "L",
-    "L": "R",
-    "F": "B",
-    "B": "F",
+COLOR_TO_FACE = {
+    "white": "U",
+    "red": "R",
+    "green": "F",
+    "yellow": "D",
+    "orange": "L",
+    "blue": "B",
 }
 
 
@@ -205,7 +223,13 @@ class InvalidCubeError(SolverError):
 
 class NoSolutionError(SolverError):
     """
-    Raised when the search cannot find a solution within its limits.
+    Raised when no solution can be produced.
+    """
+
+
+class SolverUnavailableError(SolverError):
+    """
+    Raised when the required external solver is unavailable.
     """
 
 
@@ -217,33 +241,6 @@ class NoSolutionError(SolverError):
 class SolverResult:
     """
     Result returned by CubeSolver.
-
-    Attributes:
-
-        solved:
-            Whether the cube was solved.
-
-        solution:
-            List of Move objects.
-
-        algorithm:
-            Solution in standard notation.
-
-        move_count:
-            Number of moves.
-
-        valid_cube:
-            Whether the starting cube passed validation.
-
-        verified:
-            Whether applying the solution actually produces
-            a solved cube.
-
-        errors:
-            Any errors encountered.
-
-        nodes_searched:
-            Number of states examined.
     """
 
     solved: bool
@@ -262,6 +259,8 @@ class SolverResult:
 
     nodes_searched: int = 0
 
+    method: str = "kociemba"
+
     def to_dict(self) -> dict:
         """
         Convert the result into a JSON-compatible dictionary.
@@ -269,21 +268,30 @@ class SolverResult:
 
         return {
             "solved": self.solved,
+
             "solution": [
                 str(move)
                 for move in self.solution
             ],
+
             "algorithm": self.algorithm,
+
             "move_count": self.move_count,
+
             "valid_cube": self.valid_cube,
+
             "verified": self.verified,
+
             "errors": self.errors,
+
             "nodes_searched": self.nodes_searched,
+
+            "method": self.method,
         }
 
 
 # ============================================================================
-# Cube serialization
+# Cube helpers
 # ============================================================================
 
 def _cube_key(
@@ -291,11 +299,6 @@ def _cube_key(
 ) -> tuple:
     """
     Convert a CubeState into a hashable state key.
-
-    The complete 54-sticker state is used.
-
-    This deliberately uses the CubeState representation instead of
-    trying to maintain a second cubie representation.
     """
 
     values = []
@@ -309,25 +312,13 @@ def _cube_key(
     return tuple(values)
 
 
-# ============================================================================
-# Solved-state helpers
-# ============================================================================
-
 def _create_solved_cube() -> CubeState:
     """
-    Create the standard solved cube.
-
-    Color scheme:
-
-        U = white
-        R = red
-        F = green
-        D = yellow
-        L = orange
-        B = blue
+    Create a standard solved cube.
     """
 
     if CubeState is None:
+
         raise RuntimeError(
             "CubeState could not be imported: "
             f"{CUBE_STATE_IMPORT_ERROR}"
@@ -335,18 +326,9 @@ def _create_solved_cube() -> CubeState:
 
     faces = {}
 
-    colors = {
-        "U": "white",
-        "R": "red",
-        "F": "green",
-        "D": "yellow",
-        "L": "orange",
-        "B": "blue",
-    }
-
     for face in FACE_NAMES:
 
-        color = colors[face]
+        color = FACE_COLORS[face]
 
         faces[face] = [
             [color, color, color],
@@ -381,148 +363,116 @@ def is_solved(
 
 
 # ============================================================================
-# Move helpers
+# CubeState → Kociemba conversion
 # ============================================================================
 
-def _move_face(
-    notation: str,
+def cube_to_kociemba(
+    cube: CubeState,
 ) -> str:
     """
-    Return the face represented by a move.
+    Convert CubeState into the 54-character facelet string
+    required by the Kociemba solver.
+
+    Kociemba expects faces in this order:
+
+        U R F D L B
+
+    Each face is read row-major:
+
+        0 1 2
+        3 4 5
+        6 7 8
     """
 
-    return notation[0]
+    if CubeState is None:
+
+        raise SolverError(
+            "CubeState is unavailable."
+        )
+
+    if not isinstance(cube, CubeState):
+
+        raise TypeError(
+            "cube must be a CubeState."
+        )
+
+    facelets = []
+
+    for face in KOCIEMBA_FACES:
+
+        grid = cube.faces[face]
+
+        for row in grid:
+
+            for color in row:
+
+                if color not in COLOR_TO_FACE:
+
+                    raise InvalidCubeError(
+                        f"Unknown cube color: {color}"
+                    )
+
+                facelets.append(
+                    COLOR_TO_FACE[color]
+                )
+
+    return "".join(facelets)
 
 
-def _move_modifier(
-    notation: str,
+# ============================================================================
+# Kociemba → Move conversion
+# ============================================================================
+
+def _clean_kociemba_solution(
+    solution: str,
 ) -> str:
     """
-    Return the modifier represented by a move.
+    Clean the result returned by Kociemba.
+
+    Kociemba may append information such as:
+
+        (20f)
+
+    Only the actual move sequence is returned.
     """
 
-    if len(notation) == 1:
+    if not solution:
+
         return ""
 
-    return notation[1:]
+    solution = solution.strip()
 
+    # Remove trailing "(20f)", "(18f)", etc.
 
-def _moves_same_face(
-    first: str,
-    second: str,
-) -> bool:
-    """
-    Return True if two moves operate on the same face.
-    """
-
-    return (
-        _move_face(first)
-        == _move_face(second)
+    solution = re.sub(
+        r"\s*\([^)]*\)\s*$",
+        "",
+        solution,
     )
 
-
-def _moves_same_axis(
-    first: str,
-    second: str,
-) -> bool:
-    """
-    Return True if two moves operate on the same cube axis.
-
-    This is useful for reducing unnecessary search branching.
-
-    Axis groups:
-
-        U / D
-        R / L
-        F / B
-    """
-
-    face_a = _move_face(first)
-    face_b = _move_face(second)
-
-    if face_a in ("U", "D"):
-        return face_b in ("U", "D")
-
-    if face_a in ("R", "L"):
-        return face_b in ("R", "L")
-
-    return face_b in ("F", "B")
+    return solution.strip()
 
 
-# ============================================================================
-# Move normalization
-# ============================================================================
-
-def _normalize_moves(
-    moves: Iterable[Move],
+def parse_solution(
+    solution: str,
 ) -> list[Move]:
     """
-    Remove redundant consecutive moves.
-
-    This uses the move engine's simplification logic indirectly by
-    converting the sequence back through standard notation.
-
-    The solver itself normally avoids generating these sequences,
-    but this function is useful for the final solution.
+    Convert a standard solution string into Move objects.
     """
 
-    result: list[Move] = []
+    if not solution.strip():
 
-    for move in moves:
+        return []
 
-        if not result:
-            result.append(move)
-            continue
+    moves = []
 
-        previous = result[-1]
+    for token in solution.split():
 
-        if previous.face != move.face:
+        moves.append(
+            Move.parse(token)
+        )
 
-            result.append(move)
-
-            continue
-
-        total = (
-            previous.quarter_turns
-            + move.quarter_turns
-        ) % 4
-
-        result.pop()
-
-        if total == 0:
-            continue
-
-        if total == 1:
-            result.append(
-                Move(previous.face)
-            )
-
-        elif total == 2:
-            result.append(
-                Move(previous.face, "2")
-            )
-
-        else:
-            result.append(
-                Move(previous.face, "'")
-            )
-
-    return result
-
-
-# ============================================================================
-# Search node
-# ============================================================================
-
-@dataclass
-class _SearchNode:
-    """
-    Internal search node.
-    """
-
-    cube: CubeState
-
-    moves: tuple[str, ...]
+    return moves
 
 
 # ============================================================================
@@ -533,46 +483,42 @@ class CubeSolver:
     """
     CubeAI Rubik's Cube solver.
 
-    This implementation uses an iterative deepening depth-first search
-    over the existing face-move engine.
+    Uses the Kociemba two-phase algorithm when available.
 
-    Important:
+    This allows CubeAI to solve:
 
-        This is intentionally a correctness-first solver.
+        - single moves
+        - short algorithms
+        - medium scrambles
+        - normal physical cube scrambles
 
-    It is suitable for:
-
-        - testing the CubeAI pipeline
-        - validating move logic
-        - solving shallow scrambles
-        - integration testing with scanner.py
-        - building the next solver layer
-
-    It is NOT yet intended to compete with advanced two-phase
-    Rubik's Cube solvers.
-
-    The solver can therefore be replaced later by a faster cubie-based
-    Kociemba-style solver without changing the scanner interface.
+    The solution is always verified through CubeAI's own
+    move engine before being returned.
     """
 
     def __init__(
         self,
-        max_depth: int = 7,
+        *,
+        method: str = "auto",
     ) -> None:
 
-        if max_depth < 0:
+        method = method.lower().strip()
+
+        valid_methods = {
+            "auto",
+            "kociemba",
+        }
+
+        if method not in valid_methods:
+
             raise ValueError(
-                "max_depth must be >= 0."
+                "method must be 'auto' or 'kociemba'."
             )
 
-        self.max_depth = max_depth
+        self.method = method
 
         self.nodes_searched = 0
 
-        self._move_cache: dict[
-            tuple,
-            CubeState,
-        ] = {}
 
     # ========================================================================
     # Validation
@@ -583,171 +529,107 @@ class CubeSolver:
         cube: CubeState,
     ):
         """
-        Validate the supplied cube.
+        Validate the supplied cube using CubeValidator.
         """
 
         if CubeState is None:
 
             raise SolverError(
-                "CubeState could not be imported: "
+                "CubeState unavailable: "
                 f"{CUBE_STATE_IMPORT_ERROR}"
             )
 
         if validate_cube is None:
 
             raise SolverError(
-                "CubeValidator could not be imported: "
+                "CubeValidator unavailable: "
                 f"{VALIDATOR_IMPORT_ERROR}"
             )
 
         return validate_cube(cube)
 
+
     # ========================================================================
-    # Move application
+    # Kociemba solving
     # ========================================================================
 
-    def _apply_notation(
+    def _solve_kociemba(
         self,
         cube: CubeState,
-        notation: str,
-    ) -> CubeState:
+    ) -> list[Move]:
         """
-        Apply one notation move.
+        Solve a cube using Kociemba.
         """
 
-        key = (
-            _cube_key(cube),
-            notation,
+        if not KOCIEMBA_AVAILABLE:
+
+            raise SolverUnavailableError(
+                "Kociemba is not installed.\n"
+                f"{KOCIEMBA_IMPORT_ERROR}\n\n"
+                "Install it with:\n"
+                "pip install kociemba"
+            )
+
+        facelets = cube_to_kociemba(
+            cube
         )
 
-        cached = self._move_cache.get(key)
+        try:
 
-        if cached is not None:
-            return cached
+            raw_solution = kociemba.solve(
+                facelets
+            )
 
-        move = Move.parse(notation)
+        except Exception as exc:
 
-        result = apply_move(
-            cube,
-            move,
+            raise NoSolutionError(
+                f"Kociemba failed to solve cube: {exc}"
+            ) from exc
+
+        cleaned_solution = (
+            _clean_kociemba_solution(
+                raw_solution
+            )
         )
 
-        self._move_cache[key] = result
+        # Kociemba can return an error string.
 
-        return result
+        if cleaned_solution.lower().startswith(
+            "error"
+        ):
+
+            raise NoSolutionError(
+                cleaned_solution
+            )
+
+        return parse_solution(
+            cleaned_solution
+        )
+
 
     # ========================================================================
-    # Search pruning
+    # Verification
     # ========================================================================
 
-    @staticmethod
-    def _should_prune(
-        previous_move: str | None,
-        current_move: str,
+    def verify_solution(
+        self,
+        cube: CubeState,
+        solution: Iterable[Move],
     ) -> bool:
         """
-        Determine whether a candidate move should be skipped.
-
-        Rules:
-
-            1. Never perform the same face twice consecutively.
-
-            2. Never immediately perform the exact opposite move.
-
-            3. Canonically order opposite-face moves when they share
-               an axis. This avoids searching equivalent sequences.
-
-        These rules significantly reduce duplicate branches.
+        Apply a solution using CubeAI's move engine and verify
+        that the cube is solved.
         """
 
-        if previous_move is None:
-            return False
-
-        previous_face = _move_face(
-            previous_move
+        solved_cube = apply_moves(
+            cube,
+            solution,
         )
 
-        current_face = _move_face(
-            current_move
+        return is_solved(
+            solved_cube
         )
 
-        # Same face.
-
-        if previous_face == current_face:
-            return True
-
-        # Opposite faces.
-
-        if (
-            OPPOSITE_FACE[previous_face]
-            == current_face
-        ):
-            # Canonical ordering.
-
-            return (
-                current_face
-                < previous_face
-            )
-
-        return False
-
-    # ========================================================================
-    # Depth-limited search
-    # ========================================================================
-
-    def _search(
-        self,
-        cube: CubeState,
-        depth: int,
-        path: list[str],
-    ) -> list[str] | None:
-        """
-        Depth-limited DFS.
-
-        Returns a notation sequence or None.
-        """
-
-        self.nodes_searched += 1
-
-        if is_solved(cube):
-            return list(path)
-
-        if depth == 0:
-            return None
-
-        previous_move = (
-            path[-1]
-            if path
-            else None
-        )
-
-        for notation in ALL_MOVES:
-
-            if self._should_prune(
-                previous_move,
-                notation,
-            ):
-                continue
-
-            next_cube = self._apply_notation(
-                cube,
-                notation,
-            )
-
-            path.append(notation)
-
-            result = self._search(
-                next_cube,
-                depth - 1,
-                path,
-            )
-
-            path.pop()
-
-            if result is not None:
-                return result
-
-        return None
 
     # ========================================================================
     # Solve
@@ -762,26 +644,13 @@ class CubeSolver:
         """
         Solve a CubeState.
 
-        Args:
-
-            cube:
-                CubeState to solve.
-
-            verify:
-                Verify the generated algorithm against the original
-                cube before returning.
-
-        Returns:
-
-            SolverResult
+        The original cube is never modified.
         """
 
         self.nodes_searched = 0
 
-        self._move_cache.clear()
-
         # --------------------------------------------------------------------
-        # Basic type checking
+        # Type check
         # --------------------------------------------------------------------
 
         if CubeState is None:
@@ -794,9 +663,10 @@ class CubeSolver:
                 valid_cube=False,
                 verified=False,
                 errors=[
-                    "CubeState could not be imported: "
+                    "CubeState unavailable: "
                     f"{CUBE_STATE_IMPORT_ERROR}"
                 ],
+                method=self.method,
             )
 
         if not isinstance(cube, CubeState):
@@ -811,13 +681,33 @@ class CubeSolver:
                 errors=[
                     "cube must be a CubeState."
                 ],
+                method=self.method,
             )
 
         # --------------------------------------------------------------------
-        # Validate cube
+        # Validate
         # --------------------------------------------------------------------
 
-        validation = self.validate(cube)
+        try:
+
+            validation = self.validate(
+                cube
+            )
+
+        except Exception as exc:
+
+            return SolverResult(
+                solved=False,
+                solution=[],
+                algorithm="",
+                move_count=0,
+                valid_cube=False,
+                verified=False,
+                errors=[
+                    str(exc)
+                ],
+                method=self.method,
+            )
 
         if not validation.valid:
 
@@ -828,9 +718,10 @@ class CubeSolver:
                 move_count=0,
                 valid_cube=False,
                 verified=False,
-                errors=[
-                    *validation.errors
-                ],
+                errors=list(
+                    validation.errors
+                ),
+                method=self.method,
             )
 
         # --------------------------------------------------------------------
@@ -848,35 +739,14 @@ class CubeSolver:
                 verified=True,
                 errors=[],
                 nodes_searched=0,
+                method="none",
             )
 
         # --------------------------------------------------------------------
-        # Search
+        # Check solver
         # --------------------------------------------------------------------
 
-        found_solution: list[str] | None = None
-
-        for depth in range(
-            1,
-            self.max_depth + 1,
-        ):
-
-            path: list[str] = []
-
-            found_solution = self._search(
-                cube,
-                depth,
-                path,
-            )
-
-            if found_solution is not None:
-                break
-
-        # --------------------------------------------------------------------
-        # No solution found
-        # --------------------------------------------------------------------
-
-        if found_solution is None:
+        if not KOCIEMBA_AVAILABLE:
 
             return SolverResult(
                 solved=False,
@@ -886,44 +756,57 @@ class CubeSolver:
                 valid_cube=True,
                 verified=False,
                 errors=[
-                    "No solution found within "
-                    f"depth {self.max_depth}."
+                    "Kociemba solver is not installed.",
+                    "Install it with:",
+                    "pip install kociemba",
                 ],
-                nodes_searched=self.nodes_searched,
+                nodes_searched=0,
+                method="kociemba",
             )
 
         # --------------------------------------------------------------------
-        # Convert to Move objects
+        # Solve
         # --------------------------------------------------------------------
 
-        solution = [
-            Move.parse(notation)
-            for notation in found_solution
-        ]
+        try:
 
-        solution = _normalize_moves(
-            solution
-        )
+            solution = self._solve_kociemba(
+                cube
+            )
+
+        except SolverError as exc:
+
+            return SolverResult(
+                solved=False,
+                solution=[],
+                algorithm="",
+                move_count=0,
+                valid_cube=True,
+                verified=False,
+                errors=[
+                    str(exc)
+                ],
+                nodes_searched=0,
+                method="kociemba",
+            )
+
+        # --------------------------------------------------------------------
+        # Format solution
+        # --------------------------------------------------------------------
 
         algorithm = format_algorithm(
             solution
         )
 
         # --------------------------------------------------------------------
-        # Verify solution
+        # Verify
         # --------------------------------------------------------------------
-
-        verified = False
 
         if verify:
 
-            solved_cube = apply_moves(
+            verified = self.verify_solution(
                 cube,
                 solution,
-            )
-
-            verified = is_solved(
-                solved_cube
             )
 
         else:
@@ -950,52 +833,48 @@ class CubeSolver:
                 ]
             ),
             nodes_searched=self.nodes_searched,
+            method="kociemba",
         )
 
 
 # ============================================================================
-# Convenience functions
+# Convenience API
 # ============================================================================
 
 def solve_cube(
     cube: CubeState,
-    max_depth: int = 7,
+    *,
+    verify: bool = True,
 ) -> SolverResult:
     """
-    Convenience function for solving a cube.
-
-    Example:
-
-        result = solve_cube(cube)
-
-        print(result.algorithm)
+    Solve a cube and return a SolverResult.
     """
 
-    solver = CubeSolver(
-        max_depth=max_depth
-    )
+    solver = CubeSolver()
 
     return solver.solve(
-        cube
+        cube,
+        verify=verify,
     )
 
 
 def solve(
     cube: CubeState,
-    max_depth: int = 7,
 ) -> str:
     """
     Solve a cube and return only the algorithm.
 
     Raises:
 
-        SolverError
-            If the cube is invalid or no solution is found.
+        InvalidCubeError
+            If the cube is physically invalid.
+
+        NoSolutionError
+            If no solution can be generated.
     """
 
     result = solve_cube(
-        cube,
-        max_depth=max_depth,
+        cube
     )
 
     if not result.valid_cube:
@@ -1023,14 +902,6 @@ def apply_solution(
 ) -> CubeState:
     """
     Apply a solution to a cube.
-
-    Accepts either:
-
-        "R U R'"
-
-    or:
-
-        [Move("R"), Move("U"), Move("R", "'")]
     """
 
     if isinstance(solution, str):
@@ -1047,12 +918,12 @@ def apply_solution(
 
 
 # ============================================================================
-# Solver test helpers
+# Test helpers
 # ============================================================================
 
 def _test_solved_cube() -> bool:
     """
-    Test solving an already solved cube.
+    Test an already solved cube.
     """
 
     cube = _create_solved_cube()
@@ -1065,6 +936,7 @@ def _test_solved_cube() -> bool:
         result.solved
         and result.algorithm == ""
         and result.move_count == 0
+        and result.verified
     )
 
     print(
@@ -1089,9 +961,7 @@ def _test_single_move(
         notation,
     )
 
-    solver = CubeSolver(
-        max_depth=2
-    )
+    solver = CubeSolver()
 
     result = solver.solve(
         scrambled
@@ -1108,9 +978,10 @@ def _test_single_move(
         f"-> {result.algorithm}",
     )
 
-    if not passed:
+    if result.errors:
 
         for error in result.errors:
+
             print(
                 f"  ERROR: {error}"
             )
@@ -1118,12 +989,11 @@ def _test_single_move(
     return passed
 
 
-def _test_short_algorithm(
+def _test_algorithm(
     algorithm: str,
-    max_depth: int = 6,
 ) -> bool:
     """
-    Test a short scramble.
+    Test solving a multi-move scramble.
     """
 
     solved = _create_solved_cube()
@@ -1133,9 +1003,7 @@ def _test_short_algorithm(
         algorithm,
     )
 
-    solver = CubeSolver(
-        max_depth=max_depth
-    )
+    solver = CubeSolver()
 
     result = solver.solve(
         scrambled
@@ -1161,8 +1029,11 @@ def _test_short_algorithm(
     )
 
     print(
-        f"  Nodes searched: "
-        f"{result.nodes_searched}"
+        f"  Verified: {result.verified}"
+    )
+
+    print(
+        f"  Method: {result.method}"
     )
 
     if result.errors:
@@ -1172,6 +1043,47 @@ def _test_short_algorithm(
             print(
                 f"  ERROR: {error}"
             )
+
+    return passed
+
+
+def _test_cube_conversion() -> bool:
+    """
+    Test CubeState → Kociemba conversion.
+    """
+
+    cube = _create_solved_cube()
+
+    facelets = cube_to_kociemba(
+        cube
+    )
+
+    expected = (
+        "U" * 9
+        + "R" * 9
+        + "F" * 9
+        + "D" * 9
+        + "L" * 9
+        + "B" * 9
+    )
+
+    passed = (
+        facelets == expected
+        and len(facelets) == 54
+    )
+
+    print(
+        "CubeState → Kociemba conversion:",
+        "PASS" if passed else "FAIL",
+    )
+
+    print(
+        f"  Facelets: {facelets}"
+    )
+
+    print(
+        f"  Length: {len(facelets)}"
+    )
 
     return passed
 
@@ -1233,7 +1145,27 @@ def main() -> None:
         return
 
     # ========================================================================
-    # Solved cube
+    # Kociemba status
+    # ========================================================================
+
+    print(
+        "Kociemba solver:"
+    )
+
+    print(
+        f"  Available: {KOCIEMBA_AVAILABLE}"
+    )
+
+    if not KOCIEMBA_AVAILABLE:
+
+        print(
+            "  Install with: pip install kociemba"
+        )
+
+    print()
+
+    # ========================================================================
+    # Solved cube validation
     # ========================================================================
 
     cube = _create_solved_cube()
@@ -1253,12 +1185,50 @@ def main() -> None:
     print()
 
     # ========================================================================
-    # Already solved test
+    # Conversion test
     # ========================================================================
 
-    solved_test = _test_solved_cube()
+    conversion_test = (
+        _test_cube_conversion()
+    )
 
     print()
+
+    # ========================================================================
+    # Already solved
+    # ========================================================================
+
+    solved_test = (
+        _test_solved_cube()
+    )
+
+    print()
+
+    # ========================================================================
+    # If Kociemba isn't installed
+    # ========================================================================
+
+    if not KOCIEMBA_AVAILABLE:
+
+        print(
+            "Solver tests cannot continue."
+        )
+
+        print(
+            "Install the solver dependency with:"
+        )
+
+        print(
+            "  pip install kociemba"
+        )
+
+        print()
+
+        print(
+            "CubeAI Solver ready."
+        )
+
+        return
 
     # ========================================================================
     # Single move tests
@@ -1284,31 +1254,31 @@ def main() -> None:
     print()
 
     # ========================================================================
-    # Short scramble
+    # Short algorithm
     # ========================================================================
 
-    short_scramble = (
+    short_test = _test_algorithm(
         "R U R' U'"
-    )
-
-    short_test = _test_short_algorithm(
-        short_scramble,
-        max_depth=6,
     )
 
     print()
 
     # ========================================================================
-    # Another scramble
+    # Medium algorithm
     # ========================================================================
 
-    scramble = (
+    medium_test = _test_algorithm(
         "R U R' U' F2"
     )
 
-    integration_test = _test_short_algorithm(
-        scramble,
-        max_depth=7,
+    print()
+
+    # ========================================================================
+    # Larger scramble
+    # ========================================================================
+
+    larger_test = _test_algorithm(
+        "R U R' U' F2 L D B R2 U2"
     )
 
     print()
@@ -1318,10 +1288,12 @@ def main() -> None:
     # ========================================================================
 
     all_passed = (
-        solved_test
+        conversion_test
+        and solved_test
         and all(single_move_tests)
         and short_test
-        and integration_test
+        and medium_test
+        and larger_test
     )
 
     if all_passed:
