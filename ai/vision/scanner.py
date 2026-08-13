@@ -1,6 +1,5 @@
-
 """
-CubeAI Scanner
+CubeAI - Scanner
 
 High-level vision pipeline for scanning one Rubik's Cube face.
 
@@ -25,6 +24,12 @@ Pipeline:
           |
           v
     validated 3x3 color grid
+          |
+          v
+    ScanResult
+          |
+          v
+    CubeState.from_scan_results()
 
 This module is intentionally independent from the webcam.
 
@@ -32,8 +37,8 @@ A webcam can later provide frames directly to:
 
     CubeScanner.scan(frame)
 
-The scanner is responsible for combining the individual
-vision components into one reliable API.
+The scanner combines the individual vision components into
+one reliable API.
 """
 
 from __future__ import annotations
@@ -41,7 +46,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
 import cv2
@@ -109,7 +114,6 @@ else:
 # ============================================================================
 
 EXPECTED_STICKERS = 9
-
 GRID_SIZE = 3
 
 MIN_COLOR_CONFIDENCE = 0.55
@@ -125,11 +129,20 @@ VALID_COLORS = {
     "blue",
 }
 
-# Colors should not be considered valid if they fall outside
-# the known Rubik's Cube color set.
-INVALID_COLORS = {
-    UNKNOWN_COLOR,
-}
+# Maximum allowed distance from the expected normalized
+# row position when clustering sticker centers.
+ROW_CLUSTER_RATIO = 0.35
+
+# Minimum acceptable normalized distance between neighboring
+# sticker centers.
+MIN_GRID_SPACING_RATIO = 0.20
+
+# Maximum acceptable normalized distance between adjacent
+# sticker centers.
+MAX_GRID_SPACING_RATIO = 0.65
+
+# Border ignored when sampling sticker colors.
+ROI_MARGIN_RATIO = 0.20
 
 
 # ============================================================================
@@ -140,6 +153,8 @@ INVALID_COLORS = {
 class StickerResult:
     """
     Result for one sticker.
+
+    row / col describe its normalized 3x3 position.
     """
 
     row: int
@@ -147,6 +162,9 @@ class StickerResult:
     color: str
     confidence: float
     bgr: tuple[int, int, int]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
@@ -171,11 +189,11 @@ class ScanResult:
 
     sticker_confidence: float = 0.0
 
-    def to_dict(self) -> dict[str, Any]:
-        """
-        Convert result to JSON-compatible dictionary.
-        """
+    face_color: Optional[str] = None
 
+    face_name: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,
             "colors": self.colors,
@@ -186,6 +204,8 @@ class ScanResult:
             "confidence": self.confidence,
             "detection_confidence": self.detection_confidence,
             "sticker_confidence": self.sticker_confidence,
+            "face_color": self.face_color,
+            "face_name": self.face_name,
             "warnings": self.warnings or [],
             "error": self.error,
         }
@@ -199,7 +219,7 @@ class CubeScanner:
     """
     High-level Rubik's Cube face scanner.
 
-    The scanner combines:
+    Combines:
 
         CubeDetector
             ↓
@@ -240,9 +260,14 @@ class CubeScanner:
         )
 
         self.min_color_confidence = float(
-            min_color_confidence
+            max(
+                0.0,
+                min(
+                    1.0,
+                    min_color_confidence,
+                ),
+            )
         )
-
 
     # ========================================================================
     # Public API
@@ -254,20 +279,10 @@ class CubeScanner:
     ) -> ScanResult:
         """
         Scan one Rubik's Cube face.
-
-        Parameters
-        ----------
-        image:
-            OpenCV BGR image.
-
-        Returns
-        -------
-        ScanResult
-            Structured scan result.
         """
 
         # --------------------------------------------------------------------
-        # Validate input
+        # Step 0: Validate image
         # --------------------------------------------------------------------
 
         validation_error = self._validate_image(
@@ -275,7 +290,6 @@ class CubeScanner:
         )
 
         if validation_error is not None:
-
             return self._failure(
                 validation_error
             )
@@ -295,7 +309,6 @@ class CubeScanner:
             )
 
             if cube_image is None:
-
                 raise RuntimeError(
                     "Cube detector returned no image."
                 )
@@ -307,6 +320,11 @@ class CubeScanner:
             print(
                 f"  Cube image: "
                 f"{cube_width}x{cube_height}"
+            )
+
+            print(
+                f"  Detection confidence: "
+                f"{detection_confidence:.2f}"
             )
 
             # ================================================================
@@ -327,19 +345,46 @@ class CubeScanner:
             )
 
             if len(regions) != EXPECTED_STICKERS:
-
                 raise RuntimeError(
                     f"Expected {EXPECTED_STICKERS} "
                     f"stickers, found {len(regions)}."
                 )
 
             # ================================================================
-            # Step 2.5: Normalize sticker ordering
+            # Step 2.5: Validate sticker geometry
+            # ================================================================
+
+            geometry_warnings = (
+                self._validate_region_geometry(
+                    cube_image,
+                    regions,
+                )
+            )
+
+            if geometry_warnings:
+                print(
+                    "  Geometry warnings:"
+                )
+
+                for warning in geometry_warnings:
+                    print(
+                        f"    - {warning}"
+                    )
+
+            # ================================================================
+            # Step 2.6: Normalize sticker ordering
             # ================================================================
 
             regions = self._sort_regions(
-                regions
+                regions,
+                cube_image.shape[:2],
             )
+
+            if len(regions) != EXPECTED_STICKERS:
+                raise RuntimeError(
+                    "Could not normalize the detected "
+                    "stickers into a 3x3 grid."
+                )
 
             # ================================================================
             # Step 3: Classify colors
@@ -370,13 +415,20 @@ class CubeScanner:
                         row=row,
                         col=col,
                         color=color,
-                        confidence=float(confidence),
+                        confidence=confidence,
                         bgr=(
                             int(bgr[0]),
                             int(bgr[1]),
                             int(bgr[2]),
                         ),
                     )
+                )
+
+                print(
+                    f"  [{row},{col}] "
+                    f"{color:<7} "
+                    f"confidence={confidence:.2f} "
+                    f"BGR={bgr}"
                 )
 
             # ================================================================
@@ -388,7 +440,19 @@ class CubeScanner:
             )
 
             # ================================================================
-            # Step 5: Calculate confidence
+            # Step 5: Determine face identity
+            # ================================================================
+
+            center_sticker = stickers[4]
+
+            face_color = center_sticker.color
+
+            face_name = self._color_to_face(
+                face_color
+            )
+
+            # ================================================================
+            # Step 6: Calculate confidence
             # ================================================================
 
             sticker_confidence = (
@@ -403,57 +467,69 @@ class CubeScanner:
             )
 
             # ================================================================
-            # Step 6: Validate classification
+            # Step 7: Validate classification
             # ================================================================
 
             warnings = self._validate_colors(
                 stickers
             )
 
-            # ================================================================
-            # Step 7: Final success decision
-            # ================================================================
-
-            has_invalid_color = any(
-                sticker.color not in VALID_COLORS
-                for sticker in stickers
+            warnings.extend(
+                geometry_warnings
             )
 
-            has_low_confidence = any(
-                sticker.confidence
+            # ================================================================
+            # Step 8: Final success decision
+            # ================================================================
+
+            invalid_stickers = [
+                sticker
+                for sticker in stickers
+                if sticker.color not in VALID_COLORS
+            ]
+
+            low_confidence_stickers = [
+                sticker
+                for sticker in stickers
+                if sticker.confidence
                 < self.min_color_confidence
-                for sticker in stickers
+            ]
+
+            center_invalid = (
+                face_color not in VALID_COLORS
             )
 
-            success = (
-                not has_invalid_color
-                and not has_low_confidence
-            )
+            errors: list[str] = []
+
+            if invalid_stickers:
+                errors.append(
+                    f"{len(invalid_stickers)} sticker(s) "
+                    "could not be classified."
+                )
+
+            if low_confidence_stickers:
+                errors.append(
+                    f"{len(low_confidence_stickers)} "
+                    "sticker(s) have low classification "
+                    "confidence."
+                )
+
+            if center_invalid:
+                errors.append(
+                    "Center sticker could not be "
+                    "identified as a valid cube color."
+                )
+
+            success = not errors
 
             if not success:
-
-                error_messages = []
-
-                if has_invalid_color:
-
-                    error_messages.append(
-                        "One or more stickers "
-                        "could not be classified."
-                    )
-
-                if has_low_confidence:
-
-                    error_messages.append(
-                        "One or more sticker "
-                        "classifications have low confidence."
-                    )
 
                 return ScanResult(
                     success=False,
                     colors=colors,
                     stickers=stickers,
                     confidence=confidence,
-                    error=" ".join(error_messages),
+                    error=" ".join(errors),
                     warnings=warnings,
                     detection_confidence=(
                         detection_confidence
@@ -461,6 +537,8 @@ class CubeScanner:
                     sticker_confidence=(
                         sticker_confidence
                     ),
+                    face_color=face_color,
+                    face_name=face_name,
                 )
 
             # ================================================================
@@ -480,6 +558,8 @@ class CubeScanner:
                 sticker_confidence=(
                     sticker_confidence
                 ),
+                face_color=face_color,
+                face_name=face_name,
             )
 
         except Exception as exc:
@@ -487,7 +567,6 @@ class CubeScanner:
             return self._failure(
                 str(exc)
             )
-
 
     # ========================================================================
     # Input validation
@@ -499,27 +578,23 @@ class CubeScanner:
     ) -> Optional[str]:
 
         if image is None:
-
             return "Input image is empty."
 
         if not isinstance(
             image,
             np.ndarray,
         ):
-
             return (
                 "Input must be an OpenCV "
                 "NumPy image."
             )
 
         if image.size == 0:
-
             return (
                 "Input image contains no pixels."
             )
 
         if image.ndim not in (2, 3):
-
             return (
                 "Input image must have "
                 "2 or 3 dimensions."
@@ -528,14 +603,20 @@ class CubeScanner:
         if image.ndim == 3:
 
             if image.shape[2] not in (1, 3, 4):
-
                 return (
                     "Input image must have "
                     "1, 3, or 4 channels."
                 )
 
-        return None
+        height, width = image.shape[:2]
 
+        if height < 30 or width < 30:
+            return (
+                "Input image is too small "
+                "for reliable cube scanning."
+            )
+
+        return None
 
     # ========================================================================
     # Cube detection
@@ -549,7 +630,6 @@ class CubeScanner:
         if self.cube_detector is None:
 
             if CUBE_DETECTOR_ERROR:
-
                 raise RuntimeError(
                     "CubeDetector is unavailable: "
                     f"{CUBE_DETECTOR_ERROR}"
@@ -565,7 +645,6 @@ class CubeScanner:
             detector,
             "detect",
         ):
-
             raise RuntimeError(
                 "CubeDetector does not provide "
                 "a detect() method."
@@ -586,7 +665,7 @@ class CubeScanner:
         detection_confidence = 0.0
 
         # --------------------------------------------------------------------
-        # CubeFace result
+        # Object result
         # --------------------------------------------------------------------
 
         if hasattr(
@@ -604,28 +683,18 @@ class CubeScanner:
                 and warped.size > 0
             ):
 
-                if hasattr(
-                    result,
-                    "confidence",
-                ):
-
-                    detection_confidence = float(
-                        result.confidence
+                detection_confidence = (
+                    self._safe_confidence(
+                        getattr(
+                            result,
+                            "confidence",
+                            1.0,
+                        )
                     )
+                )
 
                 print(
                     "  Cube face detected!"
-                )
-
-                print(
-                    f"  Detection confidence: "
-                    f"{detection_confidence:.2f}"
-                )
-
-                print(
-                    f"  Using warped face: "
-                    f"{warped.shape[1]}x"
-                    f"{warped.shape[0]}"
                 )
 
                 return (
@@ -643,7 +712,6 @@ class CubeScanner:
         ):
 
             if result.size == 0:
-
                 raise RuntimeError(
                     "Cube detector returned "
                     "an empty image."
@@ -651,12 +719,6 @@ class CubeScanner:
 
             print(
                 "  Cube face detected!"
-            )
-
-            print(
-                f"  Cube image: "
-                f"{result.shape[1]}x"
-                f"{result.shape[0]}"
             )
 
             return (
@@ -673,20 +735,14 @@ class CubeScanner:
             dict,
         ):
 
-            if "confidence" in result:
-
-                try:
-
-                    detection_confidence = float(
-                        result["confidence"]
+            detection_confidence = (
+                self._safe_confidence(
+                    result.get(
+                        "confidence",
+                        0.0,
                     )
-
-                except (
-                    TypeError,
-                    ValueError,
-                ):
-
-                    detection_confidence = 0.0
+                )
+            )
 
             for key in (
                 "warped",
@@ -715,12 +771,7 @@ class CubeScanner:
                     )
 
                     print(
-                        f"  Detection confidence: "
-                        f"{detection_confidence:.2f}"
-                    )
-
-                    print(
-                        f"  Using detector result: "
+                        f"  Detector result: "
                         f"{key}"
                     )
 
@@ -733,7 +784,6 @@ class CubeScanner:
             "Cube detector did not return "
             "a usable warped cube face."
         )
-
 
     # ========================================================================
     # Face detection
@@ -759,30 +809,38 @@ class CubeScanner:
 
         detector = self.face_detector
 
-        if hasattr(
-            detector,
-            "detect",
-        ):
+        try:
 
-            result = detector.detect(
-                image
-            )
+            if hasattr(
+                detector,
+                "detect",
+            ):
 
-        elif hasattr(
-            detector,
-            "detect_stickers",
-        ):
+                result = detector.detect(
+                    image
+                )
 
-            result = detector.detect_stickers(
-                image
-            )
+            elif hasattr(
+                detector,
+                "detect_stickers",
+            ):
 
-        else:
+                result = detector.detect_stickers(
+                    image
+                )
+
+            else:
+
+                raise RuntimeError(
+                    "FaceDetector does not provide "
+                    "a supported detection method."
+                )
+
+        except Exception as exc:
 
             raise RuntimeError(
-                "FaceDetector does not provide "
-                "a supported detection method."
-            )
+                f"Sticker detection failed: {exc}"
+            ) from exc
 
         # --------------------------------------------------------------------
         # List / tuple
@@ -792,7 +850,6 @@ class CubeScanner:
             result,
             (list, tuple),
         ):
-
             return list(result)
 
         # --------------------------------------------------------------------
@@ -804,27 +861,141 @@ class CubeScanner:
             dict,
         ):
 
-            regions = result.get(
-                "regions"
-            )
+            for key in (
+                "regions",
+                "stickers",
+                "detections",
+                "boxes",
+            ):
 
-            if regions is not None:
+                values = result.get(
+                    key
+                )
 
-                return list(regions)
-
-            stickers = result.get(
-                "stickers"
-            )
-
-            if stickers is not None:
-
-                return list(stickers)
+                if values is not None:
+                    return list(values)
 
         raise RuntimeError(
             "Face detector returned "
             "an unsupported result."
         )
 
+    # ========================================================================
+    # Region geometry validation
+    # ========================================================================
+
+    def _validate_region_geometry(
+        self,
+        image: np.ndarray,
+        regions: list[Any],
+    ) -> list[str]:
+
+        warnings: list[str] = []
+
+        if len(regions) != EXPECTED_STICKERS:
+            return warnings
+
+        centers = []
+
+        for region in regions:
+
+            center = self._get_region_center(
+                region
+            )
+
+            if center is None:
+                warnings.append(
+                    "One or more sticker regions "
+                    "do not expose spatial coordinates."
+                )
+                return warnings
+
+            centers.append(center)
+
+        # --------------------------------------------------------------------
+        # Duplicate center detection
+        # --------------------------------------------------------------------
+
+        for i in range(len(centers)):
+
+            for j in range(i + 1, len(centers)):
+
+                dx = centers[i][0] - centers[j][0]
+                dy = centers[i][1] - centers[j][1]
+
+                distance = (
+                    (dx * dx + dy * dy)
+                    ** 0.5
+                )
+
+                if distance < 10:
+
+                    warnings.append(
+                        "Two sticker detections are "
+                        "extremely close together."
+                    )
+
+                    return warnings
+
+        # --------------------------------------------------------------------
+        # Check approximate spacing
+        # --------------------------------------------------------------------
+
+        height, width = image.shape[:2]
+
+        normalized = [
+            (
+                x / max(width, 1),
+                y / max(height, 1),
+            )
+            for x, y in centers
+        ]
+
+        # Find unique x/y spread.
+        xs = sorted(
+            point[0]
+            for point in normalized
+        )
+
+        ys = sorted(
+            point[1]
+            for point in normalized
+        )
+
+        x_gaps = [
+            xs[i + 1] - xs[i]
+            for i in range(len(xs) - 1)
+        ]
+
+        y_gaps = [
+            ys[i + 1] - ys[i]
+            for i in range(len(ys) - 1)
+        ]
+
+        if not x_gaps or not y_gaps:
+            return warnings
+
+        median_x_gap = float(
+            np.median(x_gaps)
+        )
+
+        median_y_gap = float(
+            np.median(y_gaps)
+        )
+
+        if median_x_gap < 0.03:
+            warnings.append(
+                "Sticker columns are unusually "
+                "close together."
+            )
+
+        if median_y_gap < 0.03:
+            warnings.append(
+                "Sticker rows are unusually "
+                "close together."
+            )
+
+        return warnings
 
     # ========================================================================
     # Region ordering
@@ -833,6 +1004,7 @@ class CubeScanner:
     def _sort_regions(
         self,
         regions: list[Any],
+        image_shape: tuple[int, int],
     ) -> list[Any]:
 
         """
@@ -842,13 +1014,14 @@ class CubeScanner:
             3 4 5
             6 7 8
 
-        FaceDetector normally already returns this order,
-        but scanner should not depend on that assumption.
+        Uses spatial centers instead of relying on the
+        detector's output order.
         """
 
-        centers: list[
-            tuple[int, int, Any]
-        ] = []
+        if len(regions) != EXPECTED_STICKERS:
+            return regions
+
+        centers = []
 
         for region in regions:
 
@@ -857,85 +1030,156 @@ class CubeScanner:
             )
 
             if center is None:
-
-                # If no spatial information exists,
-                # preserve detector order.
+                # No spatial information.
+                # Preserve detector order.
                 return regions
 
             x, y = center
 
             centers.append(
                 (
-                    int(x),
-                    int(y),
+                    float(x),
+                    float(y),
                     region,
                 )
             )
 
-        # Sort vertically first.
+        height, width = image_shape
+
+        # --------------------------------------------------------------------
+        # Estimate vertical spacing.
+        # --------------------------------------------------------------------
+
+        sorted_y = sorted(
+            item[1]
+            for item in centers
+        )
+
+        y_differences = [
+            sorted_y[i + 1] - sorted_y[i]
+            for i in range(
+                len(sorted_y) - 1
+            )
+        ]
+
+        positive_y_differences = [
+            value
+            for value in y_differences
+            if value > 1
+        ]
+
+        if positive_y_differences:
+
+            median_spacing = float(
+                np.median(
+                    positive_y_differences
+                )
+            )
+
+        else:
+
+            median_spacing = (
+                height / 3.0
+            )
+
+        row_threshold = max(
+            10.0,
+            median_spacing
+            * ROW_CLUSTER_RATIO,
+        )
+
+        # --------------------------------------------------------------------
+        # Cluster centers into rows.
+        # --------------------------------------------------------------------
+
         centers.sort(
             key=lambda item: item[1]
         )
 
         rows: list[
-            list[tuple[int, int, Any]]
+            list[tuple[float, float, Any]]
         ] = []
-
-        # --------------------------------------------------------------------
-        # Cluster the 9 centers into 3 rows.
-        # --------------------------------------------------------------------
 
         for item in centers:
 
             x, y, region = item
 
-            placed = False
+            best_row = None
+            best_distance = float("inf")
 
             for row in rows:
 
-                row_y = np.mean(
-                    [
-                        existing[1]
-                        for existing in row
-                    ]
+                row_y = float(
+                    np.mean(
+                        [
+                            existing[1]
+                            for existing in row
+                        ]
+                    )
                 )
 
-                if abs(y - row_y) < 80:
+                distance = abs(
+                    y - row_y
+                )
 
-                    row.append(
-                        item
-                    )
+                if (
+                    distance < row_threshold
+                    and distance < best_distance
+                ):
 
-                    placed = True
-                    break
+                    best_row = row
+                    best_distance = distance
 
-            if not placed:
+            if best_row is None:
 
                 rows.append(
                     [item]
                 )
 
+            else:
+
+                best_row.append(
+                    item
+                )
+
         # --------------------------------------------------------------------
-        # If clustering failed, use a simple y/x sort.
+        # We expect exactly 3 rows.
         # --------------------------------------------------------------------
 
         if len(rows) != GRID_SIZE:
 
-            return sorted(
-                regions,
-                key=lambda region: (
-                    self._get_region_center(
-                        region
-                    ) or (0, 0)
-                )[1]
-            )
+            # More robust fallback:
+            # divide sorted centers into three groups
+            # of three.
+            rows = [
+                centers[0:3],
+                centers[3:6],
+                centers[6:9],
+            ]
+
+        # --------------------------------------------------------------------
+        # Every row must contain exactly 3 stickers.
+        # --------------------------------------------------------------------
+
+        if any(
+            len(row) != GRID_SIZE
+            for row in rows
+        ):
+
+            return regions
+
+        # --------------------------------------------------------------------
+        # Sort rows vertically.
+        # --------------------------------------------------------------------
 
         rows.sort(
-            key=lambda row: np.mean(
-                [
-                    item[1]
-                    for item in row
-                ]
+            key=lambda row: float(
+                np.mean(
+                    [
+                        item[1]
+                        for item in row
+                    ]
+                )
             )
         )
 
@@ -953,11 +1197,13 @@ class CubeScanner:
             )
 
         if len(ordered) != EXPECTED_STICKERS:
-
             return regions
 
         return ordered
 
+    # ========================================================================
+    # Region center extraction
+    # ========================================================================
 
     def _get_region_center(
         self,
@@ -965,7 +1211,32 @@ class CubeScanner:
     ) -> Optional[tuple[int, int]]:
 
         # --------------------------------------------------------------------
-        # center explicitly supplied
+        # Tuple / list
+        # --------------------------------------------------------------------
+
+        if isinstance(
+            region,
+            (list, tuple),
+        ):
+
+            if len(region) == 4:
+
+                x, y, w, h = [
+                    float(value)
+                    for value in region
+                ]
+
+                return (
+                    int(
+                        x + w / 2
+                    ),
+                    int(
+                        y + h / 2
+                    ),
+                )
+
+        # --------------------------------------------------------------------
+        # Dictionary
         # --------------------------------------------------------------------
 
         if isinstance(
@@ -1030,7 +1301,7 @@ class CubeScanner:
                     )
 
         # --------------------------------------------------------------------
-        # object center
+        # Object
         # --------------------------------------------------------------------
 
         if (
@@ -1080,7 +1351,6 @@ class CubeScanner:
             )
 
         return None
-
 
     # ========================================================================
     # BGR extraction
@@ -1188,6 +1458,12 @@ class CubeScanner:
 
                 bgr = region["bgr"]
 
+                if len(bgr) < 3:
+                    raise RuntimeError(
+                        "BGR value must contain "
+                        "three channels."
+                    )
+
                 return (
                     int(bgr[0]),
                     int(bgr[1]),
@@ -1294,10 +1570,9 @@ class CubeScanner:
             )
 
         raise RuntimeError(
-            f"Unsupported sticker region: "
+            "Unsupported sticker region: "
             f"{region!r}"
         )
-
 
     # ========================================================================
     # Sample region
@@ -1313,6 +1588,11 @@ class CubeScanner:
     ) -> tuple[int, int, int]:
 
         height, width = image.shape[:2]
+
+        if w <= 0 or h <= 0:
+            raise RuntimeError(
+                "Sticker region has invalid dimensions."
+            )
 
         x1 = max(
             0,
@@ -1335,7 +1615,6 @@ class CubeScanner:
         )
 
         if x2 <= x1 or y2 <= y1:
-
             raise RuntimeError(
                 "Sticker region is outside "
                 "image bounds."
@@ -1347,30 +1626,29 @@ class CubeScanner:
         ]
 
         if roi.size == 0:
-
             raise RuntimeError(
                 "Sticker region contains "
                 "no pixels."
             )
 
         # --------------------------------------------------------------------
-        # Ignore border pixels.
-        #
-        # The current FaceDetector gives regions around 116x116.
-        # A 20% margin leaves the actual sticker center,
-        # reducing influence from black gaps and borders.
+        # Ignore sticker borders.
         # --------------------------------------------------------------------
 
         rh, rw = roi.shape[:2]
 
         margin_x = max(
             1,
-            int(rw * 0.20),
+            int(
+                rw * ROI_MARGIN_RATIO
+            ),
         )
 
         margin_y = max(
             1,
-            int(rh * 0.20),
+            int(
+                rh * ROI_MARGIN_RATIO
+            ),
         )
 
         if (
@@ -1384,26 +1662,43 @@ class CubeScanner:
             ]
 
         # --------------------------------------------------------------------
-        # Median is more robust than mean against small reflections,
-        # shadows and remaining border pixels.
+        # Median is robust against reflections,
+        # shadows and small artifacts.
         # --------------------------------------------------------------------
 
         pixels = roi.reshape(
             -1,
-            3,
+            roi.shape[-1],
         )
 
-        median = np.median(
-            pixels,
-            axis=0,
-        )
+        if pixels.shape[1] == 1:
 
-        return (
-            int(round(median[0])),
-            int(round(median[1])),
-            int(round(median[2])),
-        )
+            value = float(
+                np.median(pixels)
+            )
 
+            return (
+                int(value),
+                int(value),
+                int(value),
+            )
+
+        if pixels.shape[1] >= 3:
+
+            median = np.median(
+                pixels[:, :3],
+                axis=0,
+            )
+
+            return (
+                int(round(median[0])),
+                int(round(median[1])),
+                int(round(median[2])),
+            )
+
+        raise RuntimeError(
+            "Unsupported image channel format."
+        )
 
     # ========================================================================
     # Sample center
@@ -1418,6 +1713,17 @@ class CubeScanner:
     ) -> tuple[int, int, int]:
 
         height, width = image.shape[:2]
+
+        if (
+            x < 0
+            or x >= width
+            or y < 0
+            or y >= height
+        ):
+            raise RuntimeError(
+                "Sticker center is outside "
+                "image bounds."
+            )
 
         x1 = max(
             0,
@@ -1445,19 +1751,30 @@ class CubeScanner:
         ]
 
         if roi.size == 0:
-
             raise RuntimeError(
-                "Sticker center is outside "
-                "image bounds."
+                "Sticker center contains "
+                "no pixels."
             )
 
         pixels = roi.reshape(
             -1,
-            3,
+            roi.shape[-1],
         )
 
+        if pixels.shape[1] == 1:
+
+            value = float(
+                np.median(pixels)
+            )
+
+            return (
+                int(value),
+                int(value),
+                int(value),
+            )
+
         median = np.median(
-            pixels,
+            pixels[:, :3],
             axis=0,
         )
 
@@ -1466,7 +1783,6 @@ class CubeScanner:
             int(round(median[1])),
             int(round(median[2])),
         )
-
 
     # ========================================================================
     # Color classification
@@ -1492,24 +1808,52 @@ class CubeScanner:
 
         b, g, r = bgr
 
-        result = classify_bgr(
-            b,
-            g,
-            r,
-        )
+        try:
 
+            result = classify_bgr(
+                b,
+                g,
+                r,
+            )
+
+        except Exception as exc:
+
+            raise RuntimeError(
+                f"Color classification failed: {exc}"
+            ) from exc
+
+        # --------------------------------------------------------------------
         # ColorResult
+        # --------------------------------------------------------------------
+
         if hasattr(
             result,
             "color",
         ):
 
-            return (
-                str(result.color),
-                float(result.confidence),
+            color = str(
+                result.color
             )
 
+            confidence = (
+                CubeScanner._safe_confidence(
+                    getattr(
+                        result,
+                        "confidence",
+                        0.0,
+                    )
+                )
+            )
+
+            return (
+                color.lower(),
+                confidence,
+            )
+
+        # --------------------------------------------------------------------
         # Tuple
+        # --------------------------------------------------------------------
+
         if isinstance(
             result,
             tuple,
@@ -1518,11 +1862,18 @@ class CubeScanner:
             if len(result) >= 2:
 
                 return (
-                    str(result[0]),
-                    float(result[1]),
+                    str(
+                        result[0]
+                    ).lower(),
+                    CubeScanner._safe_confidence(
+                        result[1]
+                    ),
                 )
 
+        # --------------------------------------------------------------------
         # Dictionary
+        # --------------------------------------------------------------------
+
         if isinstance(
             result,
             dict,
@@ -1542,16 +1893,22 @@ class CubeScanner:
             )
 
             return (
-                str(color),
-                float(confidence),
+                str(
+                    color
+                ).lower(),
+                CubeScanner._safe_confidence(
+                    confidence
+                ),
             )
 
+        # --------------------------------------------------------------------
         # Label-only result
+        # --------------------------------------------------------------------
+
         return (
-            str(result),
+            str(result).lower(),
             0.0,
         )
-
 
     # ========================================================================
     # Color matrix
@@ -1571,19 +1928,42 @@ class CubeScanner:
 
         return [
             [
-                stickers[row * GRID_SIZE + col].color
+                stickers[
+                    row * GRID_SIZE + col
+                ].color
                 for col in range(GRID_SIZE)
             ]
             for row in range(GRID_SIZE)
         ]
 
+    # ========================================================================
+    # Face mapping
+    # ========================================================================
+
+    @staticmethod
+    def _color_to_face(
+        color: str,
+    ) -> Optional[str]:
+
+        mapping = {
+            "white": "U",
+            "red": "R",
+            "green": "F",
+            "yellow": "D",
+            "orange": "L",
+            "blue": "B",
+        }
+
+        return mapping.get(
+            color.lower()
+        )
 
     # ========================================================================
     # Color validation
     # ========================================================================
 
-    @staticmethod
     def _validate_colors(
+        self,
         stickers: list[StickerResult],
     ) -> list[str]:
 
@@ -1594,51 +1974,54 @@ class CubeScanner:
         # --------------------------------------------------------------------
 
         invalid = [
-            sticker.color
+            sticker
             for sticker in stickers
             if sticker.color not in VALID_COLORS
         ]
 
         if invalid:
 
+            positions = ", ".join(
+                f"({s.row},{s.col})"
+                for s in invalid
+            )
+
             warnings.append(
-                "Invalid color classification detected."
+                "Invalid color classification at "
+                f"{positions}."
             )
 
         # --------------------------------------------------------------------
-        # Low confidence stickers
+        # Low confidence
         # --------------------------------------------------------------------
 
         low_confidence = [
-            (
-                sticker.row,
-                sticker.col,
-                sticker.color,
-                sticker.confidence,
-            )
+            sticker
             for sticker in stickers
             if sticker.confidence
-            < MIN_COLOR_CONFIDENCE
+            < self.min_color_confidence
         ]
 
         if low_confidence:
 
+            positions = ", ".join(
+                f"({s.row},{s.col})"
+                for s in low_confidence
+            )
+
             warnings.append(
                 f"{len(low_confidence)} sticker(s) "
-                "have low classification confidence."
+                "have low classification confidence "
+                f"at {positions}."
             )
 
         # --------------------------------------------------------------------
         # Color count information
         #
-        # IMPORTANT:
+        # We intentionally DO NOT require nine stickers
+        # of the center color.
         #
-        # We do NOT require exactly one of each color here.
-        #
-        # This scanner only scans ONE face.
-        #
-        # A valid Rubik's Cube face can naturally contain
-        # multiple stickers of the same color.
+        # This is one face of a cube, not the whole cube.
         # --------------------------------------------------------------------
 
         color_counts: dict[str, int] = {}
@@ -1653,7 +2036,11 @@ class CubeScanner:
                 + 1
             )
 
-        if len(color_counts) > 1:
+        # --------------------------------------------------------------------
+        # Detect suspicious all-one-color result.
+        # --------------------------------------------------------------------
+
+        if color_counts:
 
             dominant_color = max(
                 color_counts,
@@ -1664,15 +2051,37 @@ class CubeScanner:
                 dominant_color
             ]
 
-            if dominant_count >= 8:
+            if dominant_count == EXPECTED_STICKERS:
+
+                warnings.append(
+                    "All nine stickers were classified "
+                    f"as {dominant_color}."
+                )
+
+            elif dominant_count >= 8:
 
                 warnings.append(
                     "Nearly all stickers were "
                     "classified as the same color."
                 )
 
-        return warnings
+        # --------------------------------------------------------------------
+        # Center should normally be the dominant face color.
+        # --------------------------------------------------------------------
 
+        center = stickers[4].color
+
+        if (
+            center in VALID_COLORS
+            and color_counts.get(center, 0) == 1
+        ):
+
+            warnings.append(
+                "The center color appears only once "
+                "on this scanned face."
+            )
+
+        return warnings
 
     # ========================================================================
     # Confidence
@@ -1684,7 +2093,6 @@ class CubeScanner:
     ) -> float:
 
         if not stickers:
-
             return 0.0
 
         return float(
@@ -1695,47 +2103,63 @@ class CubeScanner:
             / len(stickers)
         )
 
-
     @staticmethod
     def _calculate_confidence(
         detection_confidence: float,
         sticker_confidence: float,
     ) -> float:
 
-        """
-        Combine geometric detection and color classification
-        confidence.
-
-        The sticker classifier receives slightly more weight
-        because correct color recognition is critical for
-        the later cube-state engine.
-        """
-
-        detection_confidence = max(
-            0.0,
-            min(
-                1.0,
-                detection_confidence,
-            ),
+        detection_confidence = (
+            CubeScanner._safe_confidence(
+                detection_confidence
+            )
         )
 
-        sticker_confidence = max(
-            0.0,
-            min(
-                1.0,
-                sticker_confidence,
-            ),
+        sticker_confidence = (
+            CubeScanner._safe_confidence(
+                sticker_confidence
+            )
         )
 
         return float(
             (
-                detection_confidence * 0.40
+                detection_confidence
+                * 0.40
             )
             + (
-                sticker_confidence * 0.60
+                sticker_confidence
+                * 0.60
             )
         )
 
+    @staticmethod
+    def _safe_confidence(
+        value: Any,
+    ) -> float:
+
+        try:
+
+            value = float(
+                value
+            )
+
+        except (
+            TypeError,
+            ValueError,
+        ):
+
+            return 0.0
+
+        if not np.isfinite(value):
+            return 0.0
+
+        return max(
+            0.0,
+            min(
+                1.0,
+                value,
+            ),
+        )
 
     # ========================================================================
     # Failure helper
@@ -1755,6 +2179,8 @@ class CubeScanner:
             warnings=[],
             detection_confidence=0.0,
             sticker_confidence=0.0,
+            face_color=None,
+            face_name=None,
         )
 
 
@@ -1771,7 +2197,7 @@ def scan_image(
 
     if not image_path:
 
-        return CubeScanner()._failure(
+        return CubeScanner._failure(
             "Image path cannot be empty."
         )
 
@@ -1782,7 +2208,7 @@ def scan_image(
 
     if image is None:
 
-        return CubeScanner()._failure(
+        return CubeScanner._failure(
             f"Could not load image: {image_path}"
         )
 
@@ -1872,11 +2298,11 @@ def main() -> None:
     if not result.success:
 
         print(
-            "Scan failed:"
+            "Scan failed."
         )
 
         print(
-            f"  {result.error}"
+            f"  Error: {result.error}"
         )
 
         if result.warnings:
@@ -1914,6 +2340,22 @@ def main() -> None:
 
     print(
         "Scan successful!"
+    )
+
+    print()
+
+    print(
+        "Detected face:"
+    )
+
+    print(
+        f"  Color: "
+        f"{result.face_color}"
+    )
+
+    print(
+        f"  Face:  "
+        f"{result.face_name}"
     )
 
     print()
@@ -1978,6 +2420,4 @@ def main() -> None:
 # ============================================================================
 
 if __name__ == "__main__":
-
     main()
-

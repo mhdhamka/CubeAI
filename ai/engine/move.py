@@ -3,39 +3,10 @@ CubeAI - Move Engine
 
 Defines Rubik's Cube moves and applies them to CubeState.
 
-Supported face moves:
+The move engine uses the exact face layout and cubie orientation
+conventions defined by cubeValidator.py.
 
-    U
-    D
-    R
-    L
-    F
-    B
-
-Modifiers:
-
-    R   = clockwise quarter turn
-    R'  = counter-clockwise quarter turn
-    R2  = 180-degree turn
-
-Example:
-
-    R U R' U'
-
-This module is responsible for:
-
-    - Move representation
-    - Move parsing
-    - Algorithm parsing
-    - Algorithm inversion
-    - Algorithm simplification
-    - Cube move application
-    - Scramble application
-
-This module does NOT solve the cube.
-
-The move engine uses the same face layout and color scheme
-as cubeValidator.py:
+Color scheme:
 
     U = white
     R = red
@@ -43,21 +14,6 @@ as cubeValidator.py:
     D = yellow
     L = orange
     B = blue
-
-Face layout:
-
-              U
-          +-------+
-          |       |
-          |       |
-          |       |
-      +---+-------+---+---+
-      | L |   F   | R | B |
-      +---+-------+---+---+
-          |       |
-          |   D   |
-          |       |
-          +-------+
 """
 
 from __future__ import annotations
@@ -123,83 +79,19 @@ VALID_MODIFIERS = (
     "2",
 )
 
-
-# ============================================================================
-# Expected colors
-# ============================================================================
-
 FACE_COLORS = {
-    FACE_U: "white",
-    FACE_R: "red",
-    FACE_F: "green",
-    FACE_D: "yellow",
-    FACE_L: "orange",
-    FACE_B: "blue",
+    "U": "white",
+    "R": "red",
+    "F": "green",
+    "D": "yellow",
+    "L": "orange",
+    "B": "blue",
 }
 
 
 # ============================================================================
-# Face geometry
+# 3D geometry
 # ============================================================================
-
-"""
-Each face is represented using a 3D coordinate system.
-
-Cube coordinates:
-
-    +X = Right
-    -X = Left
-
-    +Y = Up
-    -Y = Down
-
-    +Z = Front
-    -Z = Back
-
-Each face has:
-
-    normal
-    right direction
-    down direction
-
-The directions are chosen to match the exact facelet layout
-used by cubeValidator.py.
-
-For example:
-
-U:
-
-    0 1 2
-    3 4 5
-    6 7 8
-
-has:
-
-    right = +X
-    down  = +Z
-
-while F has:
-
-    right = +X
-    down  = -Y
-
-This gives the correct physical relationship between:
-
-    UFR
-    URB
-    UBL
-    ULF
-    DFR
-    DRB
-    DBL
-    DLF
-
-and all twelve edges.
-"""
-
-# ---------------------------------------------------------------------------
-# Vector representation
-# ---------------------------------------------------------------------------
 
 Vector = tuple[int, int, int]
 
@@ -207,76 +99,75 @@ Vector = tuple[int, int, int]
 # ---------------------------------------------------------------------------
 # Face basis
 #
-# face:
+# Each face contains:
 #
 #     normal
 #     right
 #     down
+#
+# The basis is deliberately matched to cubeValidator.py.
+#
+# U:
+#     right = +X
+#     down  = +Z
+#
+# R:
+#     right = -Z
+#     down  = -Y
+#
+# F:
+#     right = +X
+#     down  = -Y
+#
+# D:
+#     right = +X
+#     down  = -Z
+#
+# L:
+#     right = +Z
+#     down  = -Y
+#
+# B:
+#     right = -X
+#     down  = -Y
 # ---------------------------------------------------------------------------
 
-FACE_BASIS: dict[str, tuple[Vector, Vector, Vector]] = {
+FACE_BASIS: dict[
+    str,
+    tuple[Vector, Vector, Vector],
+] = {
 
-    # U
-    # Looking directly at U:
-    #
-    #     right -> +X
-    #     down  -> +Z
-    FACE_U: (
+    "U": (
         (0, 1, 0),
         (1, 0, 0),
         (0, 0, 1),
     ),
 
-    # R
-    # Looking directly at R:
-    #
-    #     right -> -Z
-    #     down  -> -Y
-    FACE_R: (
+    "R": (
         (1, 0, 0),
         (0, 0, -1),
         (0, -1, 0),
     ),
 
-    # F
-    # Looking directly at F:
-    #
-    #     right -> +X
-    #     down  -> -Y
-    FACE_F: (
+    "F": (
         (0, 0, 1),
         (1, 0, 0),
         (0, -1, 0),
     ),
 
-    # D
-    # Looking directly at D:
-    #
-    #     right -> +X
-    #     down  -> -Z
-    FACE_D: (
+    "D": (
         (0, -1, 0),
         (1, 0, 0),
         (0, 0, -1),
     ),
 
-    # L
-    # Looking directly at L:
-    #
-    #     right -> +Z
-    #     down  -> -Y
-    FACE_L: (
+    "L": (
         (-1, 0, 0),
         (0, 0, 1),
         (0, -1, 0),
     ),
 
-    # B
-    # Looking directly at B:
-    #
-    #     right -> -X
-    #     down  -> -Y
-    FACE_B: (
+    "B": (
         (0, 0, -1),
         (-1, 0, 0),
         (0, -1, 0),
@@ -288,44 +179,10 @@ FACE_BASIS: dict[str, tuple[Vector, Vector, Vector]] = {
 # Vector helpers
 # ============================================================================
 
-def _vector_add(
-    a: Vector,
-    b: Vector,
-) -> Vector:
-    """
-    Add two 3D vectors.
-    """
-
-    return (
-        a[0] + b[0],
-        a[1] + b[1],
-        a[2] + b[2],
-    )
-
-
-def _vector_scale(
-    vector: Vector,
-    scalar: int,
-) -> Vector:
-    """
-    Multiply a vector by a scalar.
-    """
-
-    return (
-        vector[0] * scalar,
-        vector[1] * scalar,
-        vector[2] * scalar,
-    )
-
-
 def _dot(
     a: Vector,
     b: Vector,
 ) -> int:
-    """
-    Dot product.
-    """
-
     return (
         a[0] * b[0]
         + a[1] * b[1]
@@ -337,10 +194,6 @@ def _cross(
     a: Vector,
     b: Vector,
 ) -> Vector:
-    """
-    Cross product.
-    """
-
     return (
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
@@ -348,31 +201,31 @@ def _cross(
     )
 
 
+def _scale(
+    vector: Vector,
+    scalar: int,
+) -> Vector:
+    return (
+        vector[0] * scalar,
+        vector[1] * scalar,
+        vector[2] * scalar,
+    )
+
+
+def _add(
+    a: Vector,
+    b: Vector,
+) -> Vector:
+    return (
+        a[0] + b[0],
+        a[1] + b[1],
+        a[2] + b[2],
+    )
+
+
 # ============================================================================
 # Facelet geometry lookup
 # ============================================================================
-
-"""
-FACELET_LOOKUP maps:
-
-    (position, normal)
-
-to:
-
-    (face, row, column)
-
-Example:
-
-    U[2][2]
-
-maps to the same physical sticker position as:
-
-    F[0][2]
-    R[0][0]
-
-because those three stickers belong to UFR.
-"""
-
 
 FACELET_LOOKUP: dict[
     tuple[Vector, Vector],
@@ -382,7 +235,13 @@ FACELET_LOOKUP: dict[
 
 def _build_facelet_lookup() -> None:
     """
-    Build the complete 54-sticker geometry table.
+    Build the physical mapping for all 54 stickers.
+
+    A sticker is identified by:
+
+        (3D position, sticker normal)
+
+    which uniquely identifies its destination after a rotation.
     """
 
     FACELET_LOOKUP.clear()
@@ -391,36 +250,39 @@ def _build_facelet_lookup() -> None:
 
         normal, right, down = FACE_BASIS[face]
 
-        for row in range(GRID_SIZE):
+        for row in range(3):
 
-            for col in range(GRID_SIZE):
-
-                # Convert row/column into offsets:
-                #
-                # 0 -> -1
-                # 1 ->  0
-                # 2 -> +1
+            for col in range(3):
 
                 column_offset = col - 1
                 row_offset = row - 1
 
-                position = _vector_add(
+                position = _add(
                     normal,
-                    _vector_add(
-                        _vector_scale(
+                    _add(
+                        _scale(
                             right,
                             column_offset,
                         ),
-                        _vector_scale(
+                        _scale(
                             down,
                             row_offset,
                         ),
                     ),
                 )
 
-                FACELET_LOOKUP[
-                    (position, normal)
-                ] = (
+                key = (
+                    position,
+                    normal,
+                )
+
+                if key in FACELET_LOOKUP:
+                    raise RuntimeError(
+                        "Duplicate facelet geometry detected: "
+                        f"{key}"
+                    )
+
+                FACELET_LOOKUP[key] = (
                     face,
                     row,
                     col,
@@ -431,29 +293,23 @@ _build_facelet_lookup()
 
 
 # ============================================================================
-# Rotate vector clockwise around face normal
+# Rotation
 # ============================================================================
 
-def _rotate_vector_clockwise(
+def _rotate_clockwise(
     vector: Vector,
     normal: Vector,
 ) -> Vector:
     """
-    Rotate a vector 90 degrees clockwise around a face normal.
-
-    Clockwise is defined from the perspective of looking directly
+    Rotate a vector 90 degrees clockwise when looking directly
     at the selected face.
 
-    Mathematically this is a -90 degree rotation around the face
-    normal.
+    This is a -90 degree rotation around the face normal.
 
-    Because all coordinates are integer cube coordinates, the
-    resulting values remain integers.
+    Rodrigues rotation:
+
+        v' = -n x v + n(n . v)
     """
-
-    # Rodrigues rotation for -90 degrees:
-    #
-    # v' = -n x v + n(n . v)
 
     cross = _cross(
         normal,
@@ -466,9 +322,14 @@ def _rotate_vector_clockwise(
     )
 
     return (
-        -cross[0] + normal[0] * projection,
-        -cross[1] + normal[1] * projection,
-        -cross[2] + normal[2] * projection,
+        -cross[0]
+        + normal[0] * projection,
+
+        -cross[1]
+        + normal[1] * projection,
+
+        -cross[2]
+        + normal[2] * projection,
     )
 
 
@@ -522,11 +383,11 @@ class Move:
     @property
     def quarter_turns(self) -> int:
         """
-        Return the move as clockwise quarter turns.
+        Number of clockwise quarter turns.
 
-        R  -> 1
-        R2 -> 2
-        R' -> 3
+            R  = 1
+            R2 = 2
+            R' = 3
         """
 
         if self.modifier == "":
@@ -543,13 +404,6 @@ class Move:
         )
 
     def inverse(self) -> "Move":
-        """
-        Return the inverse move.
-
-        R  -> R'
-        R' -> R
-        R2 -> R2
-        """
 
         if self.modifier == "":
             return Move(
@@ -621,22 +475,6 @@ class Move:
 def parse_algorithm(
     algorithm: str,
 ) -> list[Move]:
-    """
-    Parse an algorithm string.
-
-    Example:
-
-        R U R' U'
-
-    becomes:
-
-        [
-            Move("R"),
-            Move("U"),
-            Move("R", "'"),
-            Move("U", "'"),
-        ]
-    """
 
     if not isinstance(algorithm, str):
         raise TypeError(
@@ -654,10 +492,6 @@ def parse_algorithm(
     ]
 
 
-# ============================================================================
-# Algorithm formatting
-# ============================================================================
-
 def format_algorithm(
     moves: Iterable[Move],
 ) -> str:
@@ -669,23 +503,12 @@ def format_algorithm(
 
 
 # ============================================================================
-# Inverse algorithm
+# Algorithm inversion
 # ============================================================================
 
 def inverse_algorithm(
     moves: Iterable[Move],
 ) -> list[Move]:
-    """
-    Return the inverse of a move sequence.
-
-    Example:
-
-        R U R'
-
-    becomes:
-
-        R U' R'
-    """
 
     return [
         move.inverse()
@@ -695,23 +518,24 @@ def inverse_algorithm(
     ]
 
 
+def invert_algorithm(
+    algorithm: str,
+) -> str:
+
+    return format_algorithm(
+        inverse_algorithm(
+            parse_algorithm(algorithm)
+        )
+    )
+
+
 # ============================================================================
-# Simplification
+# Move simplification
 # ============================================================================
 
 def simplify_moves(
     moves: Iterable[Move],
 ) -> list[Move]:
-    """
-    Simplify consecutive moves of the same face.
-
-    Examples:
-
-        R R       -> R2
-        R R R     -> R'
-        R R R R   -> empty
-        R R'      -> empty
-    """
 
     result: list[Move] = []
 
@@ -738,13 +562,11 @@ def simplify_moves(
             continue
 
         if turns == 1:
-
             result.append(
                 Move(move.face)
             )
 
         elif turns == 2:
-
             result.append(
                 Move(
                     move.face,
@@ -753,7 +575,6 @@ def simplify_moves(
             )
 
         elif turns == 3:
-
             result.append(
                 Move(
                     move.face,
@@ -764,39 +585,44 @@ def simplify_moves(
     return result
 
 
-# ============================================================================
-# Facelet access
-# ============================================================================
-
-def _get_sticker(
-    faces: dict[str, list[list[str]]],
-    face: str,
-    row: int,
-    col: int,
+def simplify_algorithm(
+    algorithm: str,
 ) -> str:
-    """
-    Get one sticker.
-    """
 
-    return faces[face][row][col]
-
-
-def _set_sticker(
-    faces: dict[str, list[list[str]]],
-    face: str,
-    row: int,
-    col: int,
-    value: str,
-) -> None:
-    """
-    Set one sticker.
-    """
-
-    faces[face][row][col] = value
+    return format_algorithm(
+        simplify_moves(
+            parse_algorithm(algorithm)
+        )
+    )
 
 
 # ============================================================================
-# Clockwise quarter turn
+# Cube copying
+# ============================================================================
+
+def _copy_faces(
+    cube: CubeState,
+) -> dict[str, list[list[str]]]:
+    """
+    Deep-copy every face.
+
+    Do NOT rely on CubeState.to_dict() here.
+
+    The move engine must guarantee that applying a move never
+    mutates the original CubeState.
+    """
+
+    return {
+        face: [
+            list(row)
+            for row in cube.faces[face]
+        ]
+        for face in FACE_NAMES
+    }
+
+
+# ============================================================================
+# Single clockwise quarter turn
 # ============================================================================
 
 def _apply_clockwise_quarter_turn(
@@ -806,16 +632,16 @@ def _apply_clockwise_quarter_turn(
     """
     Apply exactly one clockwise quarter turn.
 
-    The move is calculated using 3D cube geometry rather than
-    manually hard-coded strip cycles.
+    The transformation is performed on physical sticker
+    coordinates.
 
-    This is important because it guarantees that the move engine
-    and cubeValidator.py agree on the physical location of every
-    sticker.
+    Both the sticker position AND sticker normal are rotated.
 
-    Clockwise means:
+    This is critical.
 
-        Looking directly at the selected face.
+    Rotating only the position creates states that can look
+    superficially correct while producing impossible cubie
+    orientations.
     """
 
     face = face.upper()
@@ -825,21 +651,7 @@ def _apply_clockwise_quarter_turn(
             f"Invalid face: {face}"
         )
 
-    # ------------------------------------------------------------------------
-    # Original cube
-    # ------------------------------------------------------------------------
-
-    original = {
-        current_face: [
-            list(row)
-            for row in cube.faces[current_face]
-        ]
-        for current_face in FACE_NAMES
-    }
-
-    # ------------------------------------------------------------------------
-    # Start with a complete copy.
-    # ------------------------------------------------------------------------
+    original = _copy_faces(cube)
 
     updated = {
         current_face: [
@@ -849,27 +661,7 @@ def _apply_clockwise_quarter_turn(
         for current_face in FACE_NAMES
     }
 
-    # ------------------------------------------------------------------------
-    # Selected face normal.
-    # ------------------------------------------------------------------------
-
     face_normal = FACE_BASIS[face][0]
-
-    # ------------------------------------------------------------------------
-    # Process all 54 stickers.
-    #
-    # A sticker belongs to the selected layer when its position lies
-    # on the selected face's outer plane.
-    #
-    # For example:
-    #
-    # R -> x = +1
-    # L -> x = -1
-    # U -> y = +1
-    # D -> y = -1
-    # F -> z = +1
-    # B -> z = -1
-    # ------------------------------------------------------------------------
 
     for (
         position,
@@ -880,39 +672,38 @@ def _apply_clockwise_quarter_turn(
         source_col,
     ) in FACELET_LOOKUP.items():
 
-        value = _get_sticker(
-            original,
-            source_face,
-            source_row,
-            source_col,
-        )
+        value = original[
+            source_face
+        ][
+            source_row
+        ][
+            source_col
+        ]
 
-        # --------------------------------------------------------------------
-        # Check whether this sticker belongs to the layer.
-        # --------------------------------------------------------------------
+        # ---------------------------------------------------------------
+        # Is this sticker part of the selected layer?
+        #
+        # Since every outer face has coordinate +1 or -1:
+        #
+        #     R -> x = +1
+        #     L -> x = -1
+        #     U -> y = +1
+        #     D -> y = -1
+        #     F -> z = +1
+        #     B -> z = -1
+        # ---------------------------------------------------------------
 
         if _dot(
             position,
             face_normal,
         ) == 1:
 
-            # ---------------------------------------------------------------
-            # Rotate both:
-            #
-            # 1. The sticker position
-            # 2. The sticker normal
-            #
-            # Rotating the normal is essential. Without it, stickers
-            # would move to the correct coordinates but remain associated
-            # with the wrong face orientation.
-            # ---------------------------------------------------------------
-
-            new_position = _rotate_vector_clockwise(
+            new_position = _rotate_clockwise(
                 position,
                 face_normal,
             )
 
-            new_normal = _rotate_vector_clockwise(
+            new_normal = _rotate_clockwise(
                 normal,
                 face_normal,
             )
@@ -926,9 +717,12 @@ def _apply_clockwise_quarter_turn(
 
             if destination is None:
                 raise RuntimeError(
-                    "Move engine geometry error: "
-                    f"could not map rotated sticker "
-                    f"{(new_position, new_normal)}."
+                    "Move engine geometry error.\n"
+                    f"Move: {face}\n"
+                    f"Source: "
+                    f"{(position, normal)}\n"
+                    f"Destination: "
+                    f"{(new_position, new_normal)}"
                 )
 
             (
@@ -943,23 +737,19 @@ def _apply_clockwise_quarter_turn(
             destination_row = source_row
             destination_col = source_col
 
-        _set_sticker(
-            updated,
-            destination_face,
-            destination_row,
-            destination_col,
-            value,
-        )
-
-    # ------------------------------------------------------------------------
-    # Replace cube state.
-    # ------------------------------------------------------------------------
+        updated[
+            destination_face
+        ][
+            destination_row
+        ][
+            destination_col
+        ] = value
 
     cube.faces = updated
 
 
 # ============================================================================
-# Move application
+# Apply move
 # ============================================================================
 
 def apply_move(
@@ -967,9 +757,7 @@ def apply_move(
     move: Move,
 ) -> CubeState:
     """
-    Apply one move to a CubeState.
-
-    The original cube is never modified.
+    Apply one move without modifying the original cube.
     """
 
     if CubeState is None:
@@ -988,9 +776,17 @@ def apply_move(
             "move must be a Move."
         )
 
+    # ---------------------------------------------------------------
+    # Explicit deep copy.
+    # ---------------------------------------------------------------
+
     result = CubeState(
-        cube.to_dict()
+        _copy_faces(cube)
     )
+
+    # ---------------------------------------------------------------
+    # Convert R/R'/R2 into clockwise quarter turns.
+    # ---------------------------------------------------------------
 
     for _ in range(
         move.quarter_turns
@@ -1005,16 +801,13 @@ def apply_move(
 
 
 # ============================================================================
-# Multiple moves
+# Apply multiple moves
 # ============================================================================
 
 def apply_moves(
     cube: CubeState,
     moves: Iterable[Move],
 ) -> CubeState:
-    """
-    Apply multiple moves.
-    """
 
     result = cube
 
@@ -1029,47 +822,24 @@ def apply_moves(
 
 
 # ============================================================================
-# Algorithm application
+# Apply algorithm
 # ============================================================================
 
 def apply_algorithm(
     cube: CubeState,
     algorithm: str,
 ) -> CubeState:
-    """
-    Apply an algorithm string.
-
-    Example:
-
-        apply_algorithm(
-            cube,
-            "R U R' U'"
-        )
-    """
-
-    moves = parse_algorithm(
-        algorithm
-    )
 
     return apply_moves(
         cube,
-        moves,
+        parse_algorithm(algorithm),
     )
 
-
-# ============================================================================
-# Scramble
-# ============================================================================
 
 def apply_scramble(
     cube: CubeState,
     scramble: str,
 ) -> CubeState:
-    """
-    Apply a scramble.
-
-    Scrambles use the same notation as algorithms.
-    """
 
     return apply_algorithm(
         cube,
@@ -1078,65 +848,10 @@ def apply_scramble(
 
 
 # ============================================================================
-# Algorithm utilities
-# ============================================================================
-
-def invert_algorithm(
-    algorithm: str,
-) -> str:
-    """
-    Return the inverse of an algorithm.
-
-    Example:
-
-        R U R' U'
-
-    ->
-
-        U R U' R'
-    """
-
-    moves = parse_algorithm(
-        algorithm
-    )
-
-    return format_algorithm(
-        inverse_algorithm(
-            moves
-        )
-    )
-
-
-def simplify_algorithm(
-    algorithm: str,
-) -> str:
-    """
-    Simplify an algorithm.
-    """
-
-    moves = parse_algorithm(
-        algorithm
-    )
-
-    simplified = simplify_moves(
-        moves
-    )
-
-    return format_algorithm(
-        simplified
-    )
-
-
-# ============================================================================
 # Solved cube
 # ============================================================================
 
 def _create_solved_cube() -> CubeState:
-    """
-    Create a standard solved CubeState.
-
-    This exactly matches cubeValidator.py.
-    """
 
     if CubeState is None:
         raise RuntimeError(
@@ -1156,22 +871,17 @@ def _create_solved_cube() -> CubeState:
             [color, color, color],
         ]
 
-    return CubeState(
-        faces
-    )
+    return CubeState(faces)
 
 
 # ============================================================================
-# Test helpers
+# State comparison
 # ============================================================================
 
 def _states_equal(
     first: CubeState,
     second: CubeState,
 ) -> bool:
-    """
-    Compare two cube states.
-    """
 
     return (
         first.to_dict()
@@ -1179,12 +889,105 @@ def _states_equal(
     )
 
 
+# ============================================================================
+# Validator integration
+# ============================================================================
+
+def _validate_algorithm(
+    cube: CubeState,
+    algorithm: str,
+) -> bool:
+
+    try:
+
+        from cubeValidator import validate_cube
+
+    except ImportError as exc:
+
+        print(
+            "  Validator unavailable:",
+            exc,
+        )
+
+        return True
+
+    scrambled = apply_algorithm(
+        cube,
+        algorithm,
+    )
+
+    result = validate_cube(
+        scrambled
+    )
+
+    print(
+        f"  {algorithm}: "
+        f"{'PASS' if result.valid else 'FAIL'}"
+    )
+
+    if not result.valid:
+
+        for error in result.errors:
+
+            print(
+                f"    - {error}"
+            )
+
+    return result.valid
+
+
+def _test_validator_integration(
+    cube: CubeState,
+) -> bool:
+
+    print(
+        "Validator integration tests:"
+    )
+
+    algorithms = (
+        "R",
+        "U",
+        "F",
+        "D",
+        "L",
+        "B",
+        "R U R' U'",
+        "R U R' U' F2",
+        "R U R' U' F2 L D",
+        "R U R' U' F2 L D B R2 U2",
+        "F R U R' U' F'",
+        "R2 U2 F2 D2 L2 B2",
+    )
+
+    all_passed = True
+
+    for algorithm in algorithms:
+
+        passed = _validate_algorithm(
+            cube,
+            algorithm,
+        )
+
+        if not passed:
+            all_passed = False
+
+    print()
+
+    print(
+        "Validator integration:",
+        "PASS" if all_passed else "FAILED",
+    )
+
+    return all_passed
+
+
+# ============================================================================
+# Basic inverse tests
+# ============================================================================
+
 def _test_basic_inverses(
     cube: CubeState,
 ) -> bool:
-    """
-    Test every basic move followed by its inverse.
-    """
 
     print(
         "Basic inverse tests:"
@@ -1226,12 +1029,13 @@ def _test_basic_inverses(
     return all_passed
 
 
+# ============================================================================
+# Four-turn tests
+# ============================================================================
+
 def _test_four_turns(
     cube: CubeState,
 ) -> bool:
-    """
-    Test four quarter turns restore the cube.
-    """
 
     print(
         "Four-turn restoration tests:"
@@ -1276,12 +1080,13 @@ def _test_four_turns(
     return all_passed
 
 
+# ============================================================================
+# Algorithm inverse test
+# ============================================================================
+
 def _test_algorithm_inverse(
     cube: CubeState,
 ) -> bool:
-    """
-    Test a complete multi-face algorithm and its inverse.
-    """
 
     algorithm = (
         "R U R' U' F2 L D"
@@ -1325,73 +1130,44 @@ def _test_algorithm_inverse(
 
 
 # ============================================================================
-# Validator integration test
+# Original cube immutability
 # ============================================================================
 
-def _test_validator_integration(
+def _test_original_unchanged(
     cube: CubeState,
 ) -> bool:
-    """
-    Verify that a cube produced by the move engine is accepted
-    by cubeValidator.py.
 
-    This is the critical test that catches disagreements between
-    the move engine's geometry and the validator's cubie layout.
-    """
+    original = _create_solved_cube()
 
-    try:
-
-        from cubeValidator import validate_cube
-
-    except ImportError as exc:
-
-        print(
-            "Validator integration test skipped:"
-        )
-
-        print(
-            f"  Could not import cubeValidator.py: {exc}"
-        )
-
-        return True
-
-    algorithm = (
-        "R U R' U' F2 L D"
+    moved = apply_algorithm(
+        original,
+        "R U F D L B",
     )
 
-    scrambled = apply_algorithm(
+    original_unchanged = _states_equal(
+        original,
         cube,
-        algorithm,
     )
 
-    result = validate_cube(
-        scrambled
-    )
-
-    print(
-        "Validator integration:"
+    moved_differs = not _states_equal(
+        moved,
+        cube,
     )
 
     print(
-        f"  Algorithm: {algorithm}"
+        "Original cube unchanged:",
+        original_unchanged,
     )
 
     print(
-        f"  Valid: {result.valid}"
+        "Returned moved cube differs:",
+        moved_differs,
     )
 
-    if result.errors:
-
-        print()
-        print("  Validator errors:")
-
-        for error in result.errors:
-
-            print(
-                f"    - {error}"
-            )
-
-    return result.valid
+    return (
+        original_unchanged
+        and moved_differs
+    )
 
 
 # ============================================================================
@@ -1408,9 +1184,11 @@ def main() -> None:
         "------------------"
     )
 
-    # ========================================================================
-    # Move parsing
-    # ========================================================================
+    print()
+
+    # ------------------------------------------------------------------------
+    # Parsing
+    # ------------------------------------------------------------------------
 
     move = Move.parse(
         "R'"
@@ -1429,10 +1207,6 @@ def main() -> None:
     )
 
     print()
-
-    # ========================================================================
-    # Algorithm parsing
-    # ========================================================================
 
     algorithm = (
         "R U R' U'"
@@ -1453,17 +1227,15 @@ def main() -> None:
     print(
         "Inverse:",
         format_algorithm(
-            inverse_algorithm(
-                moves
-            )
+            inverse_algorithm(moves)
         ),
     )
 
     print()
 
-    # ========================================================================
+    # ------------------------------------------------------------------------
     # Simplification
-    # ========================================================================
+    # ------------------------------------------------------------------------
 
     test = (
         "R R R R U U R R R"
@@ -1476,16 +1248,14 @@ def main() -> None:
 
     print(
         "After simplify: ",
-        simplify_algorithm(
-            test
-        ),
+        simplify_algorithm(test),
     )
 
     print()
 
-    # ========================================================================
+    # ------------------------------------------------------------------------
     # Solved cube
-    # ========================================================================
+    # ------------------------------------------------------------------------
 
     cube = _create_solved_cube()
 
@@ -1499,21 +1269,19 @@ def main() -> None:
 
     print()
 
-    # ========================================================================
-    # Basic inverse tests
-    # ========================================================================
+    # ------------------------------------------------------------------------
+    # Basic tests
+    # ------------------------------------------------------------------------
 
-    basic_inverse_passed = (
-        _test_basic_inverses(
-            cube
-        )
+    basic_passed = _test_basic_inverses(
+        cube
     )
 
     print()
 
-    # ========================================================================
+    # ------------------------------------------------------------------------
     # R2
-    # ========================================================================
+    # ------------------------------------------------------------------------
 
     moved = apply_algorithm(
         cube,
@@ -1530,21 +1298,19 @@ def main() -> None:
 
     print()
 
-    # ========================================================================
-    # Four-turn tests
-    # ========================================================================
+    # ------------------------------------------------------------------------
+    # Four turns
+    # ------------------------------------------------------------------------
 
-    four_turn_passed = (
-        _test_four_turns(
-            cube
-        )
+    four_turn_passed = _test_four_turns(
+        cube
     )
 
     print()
 
-    # ========================================================================
-    # Complex algorithm
-    # ========================================================================
+    # ------------------------------------------------------------------------
+    # Algorithm inverse
+    # ------------------------------------------------------------------------
 
     algorithm_inverse_passed = (
         _test_algorithm_inverse(
@@ -1554,9 +1320,9 @@ def main() -> None:
 
     print()
 
-    # ========================================================================
-    # Validator integration
-    # ========================================================================
+    # ------------------------------------------------------------------------
+    # Validator
+    # ------------------------------------------------------------------------
 
     validator_passed = (
         _test_validator_integration(
@@ -1566,41 +1332,28 @@ def main() -> None:
 
     print()
 
-    # ========================================================================
-    # Original cube unchanged
-    # ========================================================================
+    # ------------------------------------------------------------------------
+    # Immutability
+    # ------------------------------------------------------------------------
 
-    original = _create_solved_cube()
-
-    apply_algorithm(
-        original,
-        "R U F D L B"
-    )
-
-    unchanged = (
-        _states_equal(
-            original,
-            cube,
+    unchanged_passed = (
+        _test_original_unchanged(
+            cube
         )
-    )
-
-    print(
-        "Original cube unchanged:",
-        unchanged,
     )
 
     print()
 
-    # ========================================================================
-    # Final result
-    # ========================================================================
+    # ------------------------------------------------------------------------
+    # Final
+    # ------------------------------------------------------------------------
 
     all_passed = (
-        basic_inverse_passed
+        basic_passed
         and four_turn_passed
         and algorithm_inverse_passed
         and validator_passed
-        and unchanged
+        and unchanged_passed
     )
 
     if all_passed:

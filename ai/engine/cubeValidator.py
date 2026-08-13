@@ -887,29 +887,33 @@ class CubeValidator:
         ],
     ) -> int:
         """
-        Determine corner orientation using cyclic sticker order.
+        Determine corner orientation.
 
-        This is the important part of the validator.
+        The orientation is determined by the location of the
+        white/yellow sticker.
 
-        A corner's orientation cannot be determined reliably by
-        simply checking whether the U/D sticker is on:
+        The CORNER_FACELETS definitions intentionally use different
+        handedness for the U-layer and D-layer corners.
 
-            U/D -> 0
-            F/B -> 1
-            R/L -> 2
+        Therefore the orientation mapping is:
 
-        because the four D-layer corner definitions have the
-        opposite handedness from the four U-layer definitions.
+        U-layer:
 
-        Instead:
+            UD sticker on U -> 0
+            UD sticker on F/B/L/R -> according to the local
+            corner ordering.
 
-        1. Build the canonical color order from the corner's
-           face order.
-        2. Compare the current sticker order against that
-           canonical order.
-        3. Determine which cyclic rotation occurred.
-        4. Reverse the orientation for D-layer corners because
-           their facelet order is opposite-handed.
+        D-layer:
+
+            The side-face orientation is reversed relative to
+            the U-layer.
+
+        This method does NOT assume that the three sticker colors
+        must appear as a cyclic rotation of the canonical color
+        tuple.
+
+        That assumption is incorrect when a cubie moves between
+        U-layer and D-layer positions.
 
         Returns:
 
@@ -919,84 +923,105 @@ class CubeValidator:
         """
 
         # --------------------------------------------------------------------
-        # Build canonical colors for this exact corner position.
+        # Find the white/yellow sticker.
+        #
+        # Every valid corner contains exactly one U/D color.
+        # --------------------------------------------------------------------
+
+        ud_index = -1
+
+        for index, color in enumerate(colors):
+
+            if color in ("white", "yellow"):
+                ud_index = index
+                break
+
+        # --------------------------------------------------------------------
+        # A malformed corner will already be reported by the cubie
+        # identity validation.
+        #
+        # Return 0 here so that orientation checking does not generate
+        # misleading secondary errors.
+        # --------------------------------------------------------------------
+
+        if ud_index == -1:
+            return 0
+
+        # --------------------------------------------------------------------
+        # U-layer corners.
         #
         # Example:
         #
-        # UFR -> white, green, red
-        # URB -> white, red, blue
-        # DFR -> yellow, green, red
+        # UFR:
         #
-        # These come directly from EXPECTED_CENTERS.
+        #     U -> 0
+        #     F -> 1
+        #     R -> 2
+        #
+        # URB:
+        #
+        #     U -> 0
+        #     R -> 1
+        #     B -> 2
+        #
+        # UBL:
+        #
+        #     U -> 0
+        #     B -> 1
+        #     L -> 2
+        #
+        # ULF:
+        #
+        #     U -> 0
+        #     L -> 1
+        #     F -> 2
         # --------------------------------------------------------------------
 
-        canonical_colors = tuple(
-            EXPECTED_CENTERS[face]
-            for face, _, _ in facelets
-        )
+        if facelets[0][0] == "U":
 
-        current_colors = tuple(colors)
+            return ud_index
 
         # --------------------------------------------------------------------
-        # The current colors of a physically valid corner must be one of
-        # the three cyclic rotations of its canonical color order.
+        # D-layer corners.
         #
-        # Example for UFR:
+        # The D-layer facelet definitions have opposite handedness.
         #
-        # canonical:
+        # Therefore the side-face orientations are reversed:
         #
-        #     (white, green, red)
+        #     D -> 0
+        #     second side -> 2
+        #     third side  -> 1
         #
-        # valid orientations:
+        # Example:
         #
-        #     (white, green, red) -> 0
-        #     (green, red, white) -> 1
-        #     (red, white, green) -> 2
+        # DFR:
         #
+        #     D -> 0
+        #     F -> 2
+        #     R -> 1
+        #
+        # DRB:
+        #
+        #     D -> 0
+        #     R -> 2
+        #     B -> 1
+        #
+        # DBL:
+        #
+        #     D -> 0
+        #     B -> 2
+        #     L -> 1
+        #
+        # DLF:
+        #
+        #     D -> 0
+        #     L -> 2
+        #     F -> 1
         # --------------------------------------------------------------------
 
-        for orientation in range(3):
+        return (-ud_index) % 3
 
-            rotated = (
-                canonical_colors[orientation:]
-                + canonical_colors[:orientation]
-            )
-
-            if current_colors == rotated:
-
-                # ------------------------------------------------------------
-                # U-layer corners use the same handedness as the canonical
-                # facelet order.
-                # ------------------------------------------------------------
-
-                if facelets[0][0] == "U":
-                    return orientation
-
-                # ------------------------------------------------------------
-                # D-layer corners use the opposite handedness.
-                #
-                # Therefore:
-                #
-                #     1 -> 2
-                #     2 -> 1
-                #
-                # while 0 remains 0.
-                #
-                # This is equivalent to:
-                #
-                #     (-orientation) % 3
-                # ------------------------------------------------------------
-
-                return (-orientation) % 3
-
-        # --------------------------------------------------------------------
-        # A valid corner should always match one of the three cyclic
-        # rotations. If it doesn't, return 0 because the cubie identity
-        # validation will already report the malformed corner.
-        # --------------------------------------------------------------------
-
-        return 0
-
+    
     # ========================================================================
     # Edge validation
     # ========================================================================
@@ -1479,4 +1504,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
