@@ -1054,17 +1054,52 @@ class CubeScanner:
         image_shape: tuple[int, ...],
     ) -> tuple[float, list[str]]:
 
+        """
+        Analyze whether the detected stickers form a valid 3x3 grid.
+
+        IMPORTANT:
+            Do not calculate spacing from every adjacent X/Y coordinate.
+
+            With 9 stickers, coordinates look roughly like:
+
+                X: x1 x1 x1 x2 x2 x2 x3 x3 x3
+                Y: y1 y2 y3 y1 y2 y3 y1 y2 y3
+
+            A naive diff() therefore produces many tiny values.
+
+        Instead, we:
+            1. Extract all sticker centers.
+            2. Cluster them into 3 columns and 3 rows.
+            3. Measure spacing between column/row centers.
+            4. Measure how well stickers align to those rows/columns.
+            5. Measure sticker-size consistency.
+            6. Measure whether the complete grid occupies a sensible
+               portion of the detected cube face.
+
+        This makes the geometry score independent of the absolute image size.
+        """
+
         warnings: list[str] = []
 
-        centers: list[tuple[float, float]] = []
+        if len(regions) != EXPECTED_STICKERS:
+            return (
+                0.0,
+                [
+                    f"Expected {EXPECTED_STICKERS} sticker regions, "
+                    f"found {len(regions)}."
+                ],
+            )
 
+        # --------------------------------------------------------------------
+        # Extract centers and sizes
+        # --------------------------------------------------------------------
+
+        centers: list[tuple[float, float]] = []
         sizes: list[tuple[float, float]] = []
 
         for region in regions:
 
-            center = self._get_region_center(
-                region
-            )
+            center = self._get_region_center(region)
 
             if center is None:
                 continue
@@ -1076,135 +1111,258 @@ class CubeScanner:
                 )
             )
 
-            size = self._get_region_size(
-                region
-            )
+            size = self._get_region_size(region)
 
             if size is not None:
-                sizes.append(size)
+                sizes.append(
+                    (
+                        float(size[0]),
+                        float(size[1]),
+                    )
+                )
 
         if len(centers) != EXPECTED_STICKERS:
-
             return (
                 0.0,
                 [
-                    "Unable to analyze all "
-                    "sticker centers."
+                    "Unable to determine all sticker centers."
                 ],
             )
 
-        points = np.array(
+        points = np.asarray(
             centers,
             dtype=np.float32,
         )
 
-        # --------------------------------------------------------------------
-        # Estimate horizontal and vertical spacing.
-        # --------------------------------------------------------------------
+        image_height, image_width = image_shape[:2]
 
-        unique_x = np.sort(
-            points[:, 0]
-        )
-
-        unique_y = np.sort(
-            points[:, 1]
-        )
-
-        x_diffs = np.diff(
-            unique_x
-        )
-
-        y_diffs = np.diff(
-            unique_y
-        )
-
-        positive_x = x_diffs[
-            x_diffs > 1
-        ]
-
-        positive_y = y_diffs[
-            y_diffs > 1
-        ]
-
-        if (
-            len(positive_x) == 0
-            or len(positive_y) == 0
-        ):
-
+        if image_width <= 0 or image_height <= 0:
             return (
                 0.0,
                 [
-                    "Sticker spacing could "
-                    "not be estimated."
+                    "Invalid cube image dimensions."
+                ],
+            )
+
+        # --------------------------------------------------------------------
+        # Cluster X coordinates into 3 columns
+        #
+        # Since exactly 9 stickers are expected, sorting the X coordinates
+        # and grouping them into 3 groups of 3 is reliable.
+        # --------------------------------------------------------------------
+
+        x_sorted = sorted(
+            float(point[0])
+            for point in points
+        )
+
+        y_sorted = sorted(
+            float(point[1])
+            for point in points
+        )
+
+        x_columns = [
+            x_sorted[0:3],
+            x_sorted[3:6],
+            x_sorted[6:9],
+        ]
+
+        y_rows = [
+            y_sorted[0:3],
+            y_sorted[3:6],
+            y_sorted[6:9],
+        ]
+
+        column_centers = np.array(
+            [
+                float(np.mean(column))
+                for column in x_columns
+            ],
+            dtype=np.float32,
+        )
+
+        row_centers = np.array(
+            [
+                float(np.mean(row))
+                for row in y_rows
+            ],
+            dtype=np.float32,
+        )
+
+        # --------------------------------------------------------------------
+        # Make sure the three columns and rows are actually separated.
+        # --------------------------------------------------------------------
+
+        column_spacing = np.diff(
+            column_centers
+        )
+
+        row_spacing = np.diff(
+            row_centers
+        )
+
+        if (
+            len(column_spacing) != 2
+            or len(row_spacing) != 2
+        ):
+            return (
+                0.0,
+                [
+                    "Unable to estimate 3x3 grid spacing."
                 ],
             )
 
         horizontal_spacing = float(
-            np.median(
-                positive_x
-            )
+            np.median(column_spacing)
         )
 
         vertical_spacing = float(
-            np.median(
-                positive_y
-            )
+            np.median(row_spacing)
         )
 
+        if (
+            horizontal_spacing <= 1.0
+            or vertical_spacing <= 1.0
+        ):
+            return (
+                0.0,
+                [
+                    "Sticker grid spacing is too small."
+                ],
+            )
+
         # --------------------------------------------------------------------
-        # Check whether the stickers form a reasonable 3x3 grid.
+        # Spacing consistency
+        #
+        # A good cube grid should have approximately equal spacing:
+        #
+        #     column gap 1 ≈ column gap 2
+        #     row gap 1    ≈ row gap 2
         # --------------------------------------------------------------------
 
-        x_spread = float(
-            np.std(
-                positive_x
+        horizontal_spacing_variation = (
+            abs(
+                float(column_spacing[0])
+                - float(column_spacing[1])
             )
+            / horizontal_spacing
+        )
+
+        vertical_spacing_variation = (
+            abs(
+                float(row_spacing[0])
+                - float(row_spacing[1])
+            )
+            / vertical_spacing
+        )
+
+        horizontal_spacing_score = max(
+            0.0,
+            1.0 - min(
+                horizontal_spacing_variation,
+                1.0,
+            ),
+        )
+
+        vertical_spacing_score = max(
+            0.0,
+            1.0 - min(
+                vertical_spacing_variation,
+                1.0,
+            ),
+        )
+
+        spacing_consistency_score = (
+            horizontal_spacing_score
+            + vertical_spacing_score
+        ) / 2.0
+
+        # --------------------------------------------------------------------
+        # Alignment score
+        #
+        # Each sticker should be close to one of the three column centers
+        # and one of the three row centers.
+        #
+        # This handles perspective/rotation much better than comparing raw
+        # coordinate differences.
+        # --------------------------------------------------------------------
+
+        x_errors: list[float] = []
+        y_errors: list[float] = []
+
+        for x, y in points:
+
+            nearest_column = float(
+                np.min(
+                    np.abs(
+                        column_centers - x
+                    )
+                )
+            )
+
+            nearest_row = float(
+                np.min(
+                    np.abs(
+                        row_centers - y
+                    )
+                )
+            )
+
+            x_errors.append(
+                nearest_column
+            )
+
+            y_errors.append(
+                nearest_row
+            )
+
+        mean_x_error = float(
+            np.mean(x_errors)
+        )
+
+        mean_y_error = float(
+            np.mean(y_errors)
+        )
+
+        # Normalize alignment error against grid spacing.
+        normalized_x_error = (
+            mean_x_error
             / max(
                 horizontal_spacing,
                 1.0,
             )
         )
 
-        y_spread = float(
-            np.std(
-                positive_y
-            )
+        normalized_y_error = (
+            mean_y_error
             / max(
                 vertical_spacing,
                 1.0,
             )
         )
 
-        spacing_score_x = max(
-            0.0,
-            1.0 - min(
-                x_spread,
-                1.0,
-            ),
-        )
-
-        spacing_score_y = max(
-            0.0,
-            1.0 - min(
-                y_spread,
-                1.0,
-            ),
-        )
-
-        spacing_score = (
-            spacing_score_x
-            + spacing_score_y
+        alignment_error = (
+            normalized_x_error
+            + normalized_y_error
         ) / 2.0
 
+        alignment_score = max(
+            0.0,
+            1.0 - min(
+                alignment_error * 3.0,
+                1.0,
+            ),
+        )
+
         # --------------------------------------------------------------------
-        # Check sticker size consistency.
+        # Sticker size consistency
         # --------------------------------------------------------------------
 
         size_score = 1.0
 
-        if sizes:
+        if len(sizes) == EXPECTED_STICKERS:
 
-            widths = np.array(
+            widths = np.asarray(
                 [
                     size[0]
                     for size in sizes
@@ -1212,7 +1370,7 @@ class CubeScanner:
                 dtype=np.float32,
             )
 
-            heights = np.array(
+            heights = np.asarray(
                 [
                     size[1]
                     for size in sizes
@@ -1220,81 +1378,179 @@ class CubeScanner:
                 dtype=np.float32,
             )
 
-            width_variation = (
-                float(
-                    np.std(widths)
-                )
-                / max(
-                    float(np.mean(widths)),
-                    1.0,
-                )
+            mean_width = float(
+                np.mean(widths)
             )
 
-            height_variation = (
-                float(
-                    np.std(heights)
-                )
-                / max(
-                    float(np.mean(heights)),
-                    1.0,
-                )
+            mean_height = float(
+                np.mean(heights)
             )
 
-            size_variation = (
-                width_variation
-                + height_variation
-            ) / 2.0
+            if mean_width > 0 and mean_height > 0:
 
-            size_score = max(
-                0.0,
-                1.0 - min(
-                    size_variation * 3.0,
-                    1.0,
-                ),
-            )
+                width_variation = (
+                    float(np.std(widths))
+                    / mean_width
+                )
+
+                height_variation = (
+                    float(np.std(heights))
+                    / mean_height
+                )
+
+                size_variation = (
+                    width_variation
+                    + height_variation
+                ) / 2.0
+
+                size_score = max(
+                    0.0,
+                    1.0 - min(
+                        size_variation * 3.0,
+                        1.0,
+                    ),
+                )
 
         # --------------------------------------------------------------------
-        # Warn about suspicious spacing.
+        # Grid scale sanity check
         #
-        # Do NOT use absolute values such as "80px".
-        # The cube may be 300px, 600px, 1000px, etc.
+        # The distance between the first and last sticker centers should be
+        # a meaningful portion of the detected cube face.
+        #
+        # This is relative to image dimensions, so it works for 300x300,
+        # 600x600, 1000x1000, etc.
         # --------------------------------------------------------------------
 
-        image_height, image_width = (
-            image_shape[:2]
+        grid_width = (
+            float(
+                column_centers[-1]
+                - column_centers[0]
+            )
         )
 
-        expected_spacing_x = (
-            image_width / 3.0
+        grid_height = (
+            float(
+                row_centers[-1]
+                - row_centers[0]
+            )
         )
 
-        expected_spacing_y = (
-            image_height / 3.0
+        grid_width_ratio = (
+            grid_width
+            / max(
+                float(image_width),
+                1.0,
+            )
         )
 
-        if (
-            horizontal_spacing
-            < expected_spacing_x * 0.20
-        ):
+        grid_height_ratio = (
+            grid_height
+            / max(
+                float(image_height),
+                1.0,
+            )
+        )
 
-            warnings.append(
-                "Sticker columns are unusually "
-                "close together."
+        # A sticker grid should normally occupy a substantial portion of
+        # the detected cube face.
+        #
+        # These are deliberately broad bounds because different detectors
+        # may return different sticker margins.
+        scale_score_x = 1.0
+
+        if grid_width_ratio < 0.25:
+            scale_score_x = 0.0
+        elif grid_width_ratio < 0.40:
+            scale_score_x = (
+                grid_width_ratio - 0.25
+            ) / 0.15
+        elif grid_width_ratio <= 0.95:
+            scale_score_x = 1.0
+        else:
+            scale_score_x = max(
+                0.0,
+                1.0 - (
+                    grid_width_ratio - 0.95
+                ) / 0.20,
             )
 
-        if (
-            vertical_spacing
-            < expected_spacing_y * 0.20
-        ):
+        scale_score_y = 1.0
 
-            warnings.append(
-                "Sticker rows are unusually "
-                "close together."
+        if grid_height_ratio < 0.25:
+            scale_score_y = 0.0
+        elif grid_height_ratio < 0.40:
+            scale_score_y = (
+                grid_height_ratio - 0.25
+            ) / 0.15
+        elif grid_height_ratio <= 0.95:
+            scale_score_y = 1.0
+        else:
+            scale_score_y = max(
+                0.0,
+                1.0 - (
+                    grid_height_ratio - 0.95
+                ) / 0.20,
             )
+
+        scale_score = (
+            scale_score_x
+            + scale_score_y
+        ) / 2.0
+
+        # --------------------------------------------------------------------
+        # Warnings
+        # --------------------------------------------------------------------
+
+        # Use a relative threshold rather than an absolute pixel threshold.
+        if horizontal_spacing < image_width * 0.05:
+            warnings.append(
+                "Sticker columns are unusually close together."
+            )
+
+        if vertical_spacing < image_height * 0.05:
+            warnings.append(
+                "Sticker rows are unusually close together."
+            )
+
+        if horizontal_spacing_variation > 0.25:
+            warnings.append(
+                "Horizontal sticker spacing is inconsistent."
+            )
+
+        if vertical_spacing_variation > 0.25:
+            warnings.append(
+                "Vertical sticker spacing is inconsistent."
+            )
+
+        if alignment_score < 0.60:
+            warnings.append(
+                "Sticker centers do not align cleanly "
+                "to a 3x3 grid."
+            )
+
+        if size_score < 0.60:
+            warnings.append(
+                "Sticker sizes are inconsistent."
+            )
+
+        if scale_score < 0.60:
+            warnings.append(
+                "Sticker grid occupies an unusual portion "
+                "of the detected cube face."
+            )
+
+        # --------------------------------------------------------------------
+        # Final geometry confidence
+        #
+        # Alignment is the strongest signal because a valid 3x3 sticker
+        # layout should have clean row/column structure.
+        # --------------------------------------------------------------------
 
         geometry_confidence = (
-            spacing_score * 0.70
-            + size_score * 0.30
+            spacing_consistency_score * 0.35
+            + alignment_score * 0.35
+            + size_score * 0.15
+            + scale_score * 0.15
         )
 
         geometry_confidence = (
@@ -1312,6 +1568,11 @@ class CubeScanner:
             f"  Grid spacing: "
             f"{horizontal_spacing:.1f} x "
             f"{vertical_spacing:.1f}"
+        )
+
+        print(
+            f"  Grid alignment: "
+            f"{alignment_score:.2f}"
         )
 
         return (
