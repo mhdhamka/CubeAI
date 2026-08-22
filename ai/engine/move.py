@@ -1,10 +1,13 @@
 """
 CubeAI - Move Engine
 
-Defines Rubik's Cube moves and applies them to CubeState.
+Defines Rubik's Cube moves and applies them to:
+
+    1. CubeState   - sticker/face representation
+    2. CubieState  - physical piece representation
 
 The move engine uses the exact face layout and cubie orientation
-conventions defined by cubeValidator.py.
+conventions defined by cubeValidator.py and cubie.py.
 
 Color scheme:
 
@@ -49,6 +52,21 @@ else:
     CUBE_STATE_IMPORT_ERROR = None
 
 
+try:
+    from cubie import (
+        CubieState,
+        CornerCubie,
+        EdgeCubie,
+    )
+except ImportError as exc:
+    CubieState = None
+    CornerCubie = None
+    EdgeCubie = None
+    CUBIE_IMPORT_ERROR = str(exc)
+else:
+    CUBIE_IMPORT_ERROR = None
+
+
 # ============================================================================
 # Constants
 # ============================================================================
@@ -88,6 +106,46 @@ FACE_COLORS = {
     "B": "blue",
 }
 
+COLOR_TO_FACE = {
+    "white": "U",
+    "red": "R",
+    "green": "F",
+    "yellow": "D",
+    "orange": "L",
+    "blue": "B",
+}
+
+
+# ============================================================================
+# Cubie names
+# ============================================================================
+
+CORNER_NAMES = (
+    "UFR",
+    "URB",
+    "UBL",
+    "ULF",
+    "DFR",
+    "DRB",
+    "DBL",
+    "DLF",
+)
+
+EDGE_NAMES = (
+    "UF",
+    "UR",
+    "UB",
+    "UL",
+    "FR",
+    "RB",
+    "BL",
+    "LF",
+    "DF",
+    "DR",
+    "DB",
+    "DL",
+)
+
 
 # ============================================================================
 # 3D geometry
@@ -98,14 +156,6 @@ Vector = tuple[int, int, int]
 
 # ---------------------------------------------------------------------------
 # Face basis
-#
-# Each face contains:
-#
-#     normal
-#     right
-#     down
-#
-# The basis is deliberately matched to cubeValidator.py.
 #
 # U:
 #     right = +X
@@ -224,6 +274,50 @@ def _add(
 
 
 # ============================================================================
+# Piece geometry
+# ============================================================================
+
+def _face_normal(face: str) -> Vector:
+    """
+    Return the 3D normal vector for a face.
+    """
+
+    return FACE_BASIS[face][0]
+
+
+def _piece_position(name: str) -> Vector:
+    """
+    Convert a cubie name into its physical 3D position.
+
+    Example:
+
+        UFR -> (+1, +1, +1)
+        DBL -> (-1, -1, -1)
+    """
+
+    position = (0, 0, 0)
+
+    for face in name:
+        position = _add(
+            position,
+            _face_normal(face),
+        )
+
+    return position
+
+
+CORNER_POSITION_LOOKUP = {
+    _piece_position(name): index
+    for index, name in enumerate(CORNER_NAMES)
+}
+
+EDGE_POSITION_LOOKUP = {
+    _piece_position(name): index
+    for index, name in enumerate(EDGE_NAMES)
+}
+
+
+# ============================================================================
 # Facelet geometry lookup
 # ============================================================================
 
@@ -240,8 +334,6 @@ def _build_facelet_lookup() -> None:
     A sticker is identified by:
 
         (3D position, sticker normal)
-
-    which uniquely identifies its destination after a rotation.
     """
 
     FACELET_LOOKUP.clear()
@@ -305,10 +397,6 @@ def _rotate_clockwise(
     at the selected face.
 
     This is a -90 degree rotation around the face normal.
-
-    Rodrigues rotation:
-
-        v' = -n x v + n(n . v)
     """
 
     cross = _cross(
@@ -382,13 +470,6 @@ class Move:
 
     @property
     def quarter_turns(self) -> int:
-        """
-        Number of clockwise quarter turns.
-
-            R  = 1
-            R2 = 2
-            R' = 3
-        """
 
         if self.modifier == "":
             return 1
@@ -597,20 +678,12 @@ def simplify_algorithm(
 
 
 # ============================================================================
-# Cube copying
+# CubeState helpers
 # ============================================================================
 
 def _copy_faces(
     cube: CubeState,
 ) -> dict[str, list[list[str]]]:
-    """
-    Deep-copy every face.
-
-    Do NOT rely on CubeState.to_dict() here.
-
-    The move engine must guarantee that applying a move never
-    mutates the original CubeState.
-    """
 
     return {
         face: [
@@ -622,27 +695,13 @@ def _copy_faces(
 
 
 # ============================================================================
-# Single clockwise quarter turn
+# CubeState - single clockwise quarter turn
 # ============================================================================
 
 def _apply_clockwise_quarter_turn(
     cube: CubeState,
     face: str,
 ) -> None:
-    """
-    Apply exactly one clockwise quarter turn.
-
-    The transformation is performed on physical sticker
-    coordinates.
-
-    Both the sticker position AND sticker normal are rotated.
-
-    This is critical.
-
-    Rotating only the position creates states that can look
-    superficially correct while producing impossible cubie
-    orientations.
-    """
 
     face = face.upper()
 
@@ -679,19 +738,6 @@ def _apply_clockwise_quarter_turn(
         ][
             source_col
         ]
-
-        # ---------------------------------------------------------------
-        # Is this sticker part of the selected layer?
-        #
-        # Since every outer face has coordinate +1 or -1:
-        #
-        #     R -> x = +1
-        #     L -> x = -1
-        #     U -> y = +1
-        #     D -> y = -1
-        #     F -> z = +1
-        #     B -> z = -1
-        # ---------------------------------------------------------------
 
         if _dot(
             position,
@@ -749,16 +795,13 @@ def _apply_clockwise_quarter_turn(
 
 
 # ============================================================================
-# Apply move
+# CubeState - apply move
 # ============================================================================
 
 def apply_move(
     cube: CubeState,
     move: Move,
 ) -> CubeState:
-    """
-    Apply one move without modifying the original cube.
-    """
 
     if CubeState is None:
         raise RuntimeError(
@@ -776,17 +819,9 @@ def apply_move(
             "move must be a Move."
         )
 
-    # ---------------------------------------------------------------
-    # Explicit deep copy.
-    # ---------------------------------------------------------------
-
     result = CubeState(
         _copy_faces(cube)
     )
-
-    # ---------------------------------------------------------------
-    # Convert R/R'/R2 into clockwise quarter turns.
-    # ---------------------------------------------------------------
 
     for _ in range(
         move.quarter_turns
@@ -799,10 +834,6 @@ def apply_move(
 
     return result
 
-
-# ============================================================================
-# Apply multiple moves
-# ============================================================================
 
 def apply_moves(
     cube: CubeState,
@@ -820,10 +851,6 @@ def apply_moves(
 
     return result
 
-
-# ============================================================================
-# Apply algorithm
-# ============================================================================
 
 def apply_algorithm(
     cube: CubeState,
@@ -848,7 +875,364 @@ def apply_scramble(
 
 
 # ============================================================================
-# Solved cube
+# CubieState move helpers
+# ============================================================================
+
+# CubieState stores piece identity plus orientation.  Do not reconstruct
+# sticker normals from the destination position: a moved piece can have a
+# different colour set from that position.  Orientation is updated
+# additively from the physical delta of each face turn.
+
+CORNER_COLORS = {
+    "UFR": ("white", "green", "red"), "URB": ("white", "red", "blue"),
+    "UBL": ("white", "blue", "orange"), "ULF": ("white", "orange", "green"),
+    "DFR": ("yellow", "green", "red"), "DRB": ("yellow", "red", "blue"),
+    "DBL": ("yellow", "blue", "orange"), "DLF": ("yellow", "orange", "green"),
+}
+
+EDGE_COLORS = {
+    "UF": ("white", "green"), "UR": ("white", "red"), "UB": ("white", "blue"),
+    "UL": ("white", "orange"), "FR": ("green", "red"), "RB": ("red", "blue"),
+    "BL": ("blue", "orange"), "LF": ("orange", "green"), "DF": ("yellow", "green"),
+    "DR": ("yellow", "red"), "DB": ("yellow", "blue"), "DL": ("yellow", "orange"),
+}
+
+
+def _piece_position(piece_name: str) -> Vector:
+    """Return the solved 3D position of a corner or edge."""
+    x = 1 if "R" in piece_name else -1 if "L" in piece_name else 0
+    y = 1 if "U" in piece_name else -1 if "D" in piece_name else 0
+    z = 1 if "F" in piece_name else -1 if "B" in piece_name else 0
+    return (x, y, z)
+
+
+def _corner_orientation_delta(piece_name: str, face: str) -> int:
+    """Return the correct per-corner orientation delta for a face turn.
+
+    Corner orientation is piece-dependent.  R/L/F/B turns twist two
+    corners by +1 and the other two by +2; using one delta for all four
+    corners violates the corner-orientation sum invariant.
+    """
+    deltas = {
+        "U": {"UFR":0,"URB":0,"UBL":0,"ULF":0,"DFR":0,"DRB":0,"DBL":0,"DLF":0},
+        "D": {"UFR":0,"URB":0,"UBL":0,"ULF":0,"DFR":0,"DRB":0,"DBL":0,"DLF":0},
+        "R": {"UFR":2,"URB":1,"UBL":0,"ULF":0,"DFR":1,"DRB":2,"DBL":0,"DLF":0},
+        "L": {"UFR":0,"URB":0,"UBL":1,"ULF":2,"DFR":0,"DRB":0,"DBL":2,"DLF":1},
+        "F": {"UFR":1,"URB":0,"UBL":0,"ULF":2,"DFR":2,"DRB":0,"DBL":0,"DLF":1},
+        "B": {"UFR":0,"URB":2,"UBL":1,"ULF":0,"DFR":0,"DRB":1,"DBL":2,"DLF":0},
+    }
+    try:
+        return deltas[face][piece_name]
+    except KeyError as exc:
+        raise ValueError(f"Invalid corner orientation lookup: piece={piece_name}, face={face}") from exc
+
+
+def _edge_orientation_delta(piece_name: str, face: str) -> int:
+    """Return the edge-orientation delta for a quarter-turn of face.
+
+    Edge orientation (0 = good, 1 = flipped) only changes on F and B moves.
+    U, D, R, L quarter turns never flip edges.
+
+    The table below is derived from the standard HTM edge-orientation
+    convention where U/D stickers (white/yellow) define orientation for
+    UD-slice edges, and F/B stickers define orientation for FB-slice edges.
+    """
+    # Only F and B moves flip edges; U/D/R/L never do.
+    deltas = {
+        "U": {"UF":0,"UR":0,"UB":0,"UL":0,"FR":0,"RB":0,"BL":0,"LF":0,
+              "DF":0,"DR":0,"DB":0,"DL":0},
+        "D": {"UF":0,"UR":0,"UB":0,"UL":0,"FR":0,"RB":0,"BL":0,"LF":0,
+              "DF":0,"DR":0,"DB":0,"DL":0},
+        "R": {"UF":0,"UR":0,"UB":0,"UL":0,"FR":0,"RB":0,"BL":0,"LF":0,
+              "DF":0,"DR":0,"DB":0,"DL":0},
+        "L": {"UF":0,"UR":0,"UB":0,"UL":0,"FR":0,"RB":0,"BL":0,"LF":0,
+              "DF":0,"DR":0,"DB":0,"DL":0},
+        "F": {"UF":1,"UR":0,"UB":0,"UL":0,"FR":1,"RB":0,"BL":0,"LF":1,
+              "DF":1,"DR":0,"DB":0,"DL":0},
+        "B": {"UF":0,"UR":0,"UB":1,"UL":0,"FR":0,"RB":1,"BL":1,"LF":0,
+              "DF":0,"DR":0,"DB":1,"DL":0},
+    }
+    try:
+        return deltas[face][piece_name]
+    except KeyError as exc:
+        raise ValueError(
+            f"Invalid edge orientation lookup: piece={piece_name}, face={face}"
+        ) from exc
+
+
+# ============================================================================
+# CubieState - transform one corner
+# ============================================================================
+
+def _transform_corner(position_index: int, corner: CornerCubie, face: str) -> tuple[int, CornerCubie]:
+    # Use the CURRENT position slot name for both geometry and orientation delta.
+    # Orientation twist is a property of which slot is turning, not which piece
+    # identity is sitting there.
+    current_slot_name = CORNER_NAMES[position_index]
+    current_position = _piece_position(current_slot_name)
+    face_normal = FACE_BASIS[face][0]
+
+    if _dot(current_position, face_normal) != 1:
+        return position_index, corner.copy()
+
+    new_position = _rotate_clockwise(current_position, face_normal)
+    destination_position = CORNER_POSITION_LOOKUP.get(new_position)
+    if destination_position is None:
+        raise RuntimeError(
+            "Corner destination could not be determined.\n"
+            f"Slot: {current_slot_name}\nMove: {face}\nPosition: {new_position}"
+        )
+
+    orientation = (
+        corner.orientation + _corner_orientation_delta(current_slot_name, face)
+    ) % 3
+
+    return destination_position, CornerCubie(
+        piece=corner.piece,
+        orientation=orientation,
+    )
+
+
+# ============================================================================
+# CubieState - transform one edge
+# ============================================================================
+
+def _transform_edge(position_index: int, edge: EdgeCubie, face: str) -> tuple[int, EdgeCubie]:
+    # Use the CURRENT position slot name for both geometry and orientation delta.
+    current_slot_name = EDGE_NAMES[position_index]
+    current_position = _piece_position(current_slot_name)
+    face_normal = FACE_BASIS[face][0]
+
+    if _dot(current_position, face_normal) != 1:
+        return position_index, edge.copy()
+
+    new_position = _rotate_clockwise(current_position, face_normal)
+    destination_position = EDGE_POSITION_LOOKUP.get(new_position)
+    if destination_position is None:
+        raise RuntimeError(
+            "Edge destination could not be determined.\n"
+            f"Slot: {current_slot_name}\nMove: {face}\nPosition: {new_position}"
+        )
+
+    orientation = (
+        edge.orientation + _edge_orientation_delta(current_slot_name, face)
+    ) % 2
+
+    return destination_position, EdgeCubie(
+        piece=edge.piece,
+        orientation=orientation,
+    )
+
+
+# ============================================================================
+# CubieState - single clockwise quarter turn
+# ============================================================================
+
+def _apply_clockwise_quarter_turn_cubie(
+    cube: CubieState,
+    face: str,
+) -> None:
+    """
+    Apply one clockwise quarter turn directly to CubieState.
+
+    The transformation is derived from the same physical 3D
+    geometry used by the sticker move engine.
+
+    This updates:
+
+        - corner permutation
+        - corner orientation
+        - edge permutation
+        - edge orientation
+    """
+
+    if CubieState is None:
+        raise RuntimeError(
+            "CubieState could not be imported: "
+            f"{CUBIE_IMPORT_ERROR}"
+        )
+
+    face = face.upper()
+
+    if face not in VALID_FACES:
+        raise ValueError(
+            f"Invalid face: {face}"
+        )
+
+    original_corners = [
+        corner.copy()
+        for corner in cube.corners
+    ]
+
+    original_edges = [
+        edge.copy()
+        for edge in cube.edges
+    ]
+
+    updated_corners = [
+        None
+        for _ in range(8)
+    ]
+
+    updated_edges = [
+        None
+        for _ in range(12)
+    ]
+
+    for position_index, corner in enumerate(
+        original_corners
+    ):
+
+        destination, transformed = (
+            _transform_corner(
+                position_index,
+                corner,
+                face,
+            )
+        )
+
+        updated_corners[
+            destination
+        ] = transformed
+
+    for position_index, edge in enumerate(
+        original_edges
+    ):
+
+        destination, transformed = (
+            _transform_edge(
+                position_index,
+                edge,
+                face,
+            )
+        )
+
+        updated_edges[
+            destination
+        ] = transformed
+
+    if any(
+        corner is None
+        for corner in updated_corners
+    ):
+        raise RuntimeError(
+            f"Corner transformation incomplete for {face}."
+        )
+
+    if any(
+        edge is None
+        for edge in updated_edges
+    ):
+        raise RuntimeError(
+            f"Edge transformation incomplete for {face}."
+        )
+
+    cube.corners = updated_corners
+    cube.edges = updated_edges
+
+    validation = cube.validate()
+
+    if not validation["valid"]:
+        raise RuntimeError(
+            "Cubie move produced an invalid cube.\n"
+            f"Move: {face}\n"
+            f"Errors: {validation['errors']}"
+        )
+
+
+# ============================================================================
+# CubieState - apply move
+# ============================================================================
+
+def apply_move_cubie(
+    cube: CubieState,
+    move: Move,
+) -> CubieState:
+    """
+    Apply one move to a CubieState.
+
+    The original CubieState is never modified.
+    """
+
+    if CubieState is None:
+        raise RuntimeError(
+            "CubieState could not be imported: "
+            f"{CUBIE_IMPORT_ERROR}"
+        )
+
+    if not isinstance(cube, CubieState):
+        raise TypeError(
+            "cube must be a CubieState."
+        )
+
+    if not isinstance(move, Move):
+        raise TypeError(
+            "move must be a Move."
+        )
+
+    result = cube.copy()
+
+    for _ in range(
+        move.quarter_turns
+    ):
+
+        _apply_clockwise_quarter_turn_cubie(
+            result,
+            move.face,
+        )
+
+    return result
+
+
+# ============================================================================
+# CubieState - apply multiple moves
+# ============================================================================
+
+def apply_moves_cubie(
+    cube: CubieState,
+    moves: Iterable[Move],
+) -> CubieState:
+
+    result = cube
+
+    for move in moves:
+
+        result = apply_move_cubie(
+            result,
+            move,
+        )
+
+    return result
+
+
+# ============================================================================
+# CubieState - apply algorithm
+# ============================================================================
+
+def apply_algorithm_cubie(
+    cube: CubieState,
+    algorithm: str,
+) -> CubieState:
+
+    return apply_moves_cubie(
+        cube,
+        parse_algorithm(algorithm),
+    )
+
+
+def apply_scramble_cubie(
+    cube: CubieState,
+    scramble: str,
+) -> CubieState:
+
+    return apply_algorithm_cubie(
+        cube,
+        scramble,
+    )
+
+
+# ============================================================================
+# Solved CubeState
 # ============================================================================
 
 def _create_solved_cube() -> CubeState:
@@ -875,12 +1259,38 @@ def _create_solved_cube() -> CubeState:
 
 
 # ============================================================================
+# Solved CubieState
+# ============================================================================
+
+def _create_solved_cubie() -> CubieState:
+
+    if CubieState is None:
+        raise RuntimeError(
+            "CubieState could not be imported: "
+            f"{CUBIE_IMPORT_ERROR}"
+        )
+
+    return CubieState()
+
+
+# ============================================================================
 # State comparison
 # ============================================================================
 
 def _states_equal(
     first: CubeState,
     second: CubeState,
+) -> bool:
+
+    return (
+        first.to_dict()
+        == second.to_dict()
+    )
+
+
+def _cubie_states_equal(
+    first: CubieState,
+    second: CubieState,
 ) -> bool:
 
     return (
@@ -982,7 +1392,7 @@ def _test_validator_integration(
 
 
 # ============================================================================
-# Basic inverse tests
+# Basic CubeState inverse tests
 # ============================================================================
 
 def _test_basic_inverses(
@@ -1030,7 +1440,7 @@ def _test_basic_inverses(
 
 
 # ============================================================================
-# Four-turn tests
+# CubeState four-turn tests
 # ============================================================================
 
 def _test_four_turns(
@@ -1081,7 +1491,7 @@ def _test_four_turns(
 
 
 # ============================================================================
-# Algorithm inverse test
+# CubeState algorithm inverse test
 # ============================================================================
 
 def _test_algorithm_inverse(
@@ -1130,7 +1540,7 @@ def _test_algorithm_inverse(
 
 
 # ============================================================================
-# Original cube immutability
+# CubeState immutability
 # ============================================================================
 
 def _test_original_unchanged(
@@ -1161,6 +1571,260 @@ def _test_original_unchanged(
 
     print(
         "Returned moved cube differs:",
+        moved_differs,
+    )
+
+    return (
+        original_unchanged
+        and moved_differs
+    )
+
+
+# ============================================================================
+# CubieState basic inverse tests
+# ============================================================================
+
+def _test_cubie_basic_inverses(
+    cube: CubieState,
+) -> bool:
+
+    print(
+        "CubieState inverse tests:"
+    )
+
+    all_passed = True
+
+    for face in FACE_NAMES:
+
+        algorithm = (
+            f"{face} {face}'"
+        )
+
+        restored = apply_algorithm_cubie(
+            cube,
+            algorithm,
+        )
+
+        passed = _cubie_states_equal(
+            restored,
+            cube,
+        )
+
+        print(
+            f"  {algorithm}: "
+            f"{'PASS' if passed else 'FAIL'}"
+        )
+
+        if not passed:
+            all_passed = False
+
+    print()
+
+    print(
+        "CubieState inverse tests:",
+        "PASS" if all_passed else "FAILED",
+    )
+
+    return all_passed
+
+
+# ============================================================================
+# CubieState four-turn tests
+# ============================================================================
+
+def _test_cubie_four_turns(
+    cube: CubieState,
+) -> bool:
+
+    print(
+        "CubieState four-turn tests:"
+    )
+
+    all_passed = True
+
+    for face in FACE_NAMES:
+
+        algorithm = (
+            f"{face} "
+            f"{face} "
+            f"{face} "
+            f"{face}"
+        )
+
+        restored = apply_algorithm_cubie(
+            cube,
+            algorithm,
+        )
+
+        passed = _cubie_states_equal(
+            restored,
+            cube,
+        )
+
+        print(
+            f"  {algorithm}: "
+            f"{'PASS' if passed else 'FAIL'}"
+        )
+
+        if not passed:
+            all_passed = False
+
+    print()
+
+    print(
+        "CubieState four-turn tests:",
+        "PASS" if all_passed else "FAILED",
+    )
+
+    return all_passed
+
+
+# ============================================================================
+# CubieState algorithm inverse test
+# ============================================================================
+
+def _test_cubie_algorithm_inverse(
+    cube: CubieState,
+) -> bool:
+
+    algorithm = (
+        "R U R' U' F2 L D"
+    )
+
+    inverse = invert_algorithm(
+        algorithm
+    )
+
+    scrambled = apply_algorithm_cubie(
+        cube,
+        algorithm,
+    )
+
+    restored = apply_algorithm_cubie(
+        scrambled,
+        inverse,
+    )
+
+    passed = _cubie_states_equal(
+        restored,
+        cube,
+    )
+
+    print(
+        "Cubie algorithm:",
+        algorithm,
+    )
+
+    print(
+        "Cubie inverse:",
+        inverse,
+    )
+
+    print(
+        "Cubie algorithm + inverse restores cube:",
+        passed,
+    )
+
+    return passed
+
+
+# ============================================================================
+# CubieState physical validation tests
+# ============================================================================
+
+def _test_cubie_validation(
+    cube: CubieState,
+) -> bool:
+
+    print(
+        "CubieState validation tests:"
+    )
+
+    algorithms = (
+        "R",
+        "U",
+        "F",
+        "D",
+        "L",
+        "B",
+        "R U R' U'",
+        "R U R' U' F2",
+        "R U R' U' F2 L D",
+        "R U R' U' F2 L D B R2 U2",
+        "F R U R' U' F'",
+        "R2 U2 F2 D2 L2 B2",
+    )
+
+    all_passed = True
+
+    for algorithm in algorithms:
+
+        moved = apply_algorithm_cubie(
+            cube,
+            algorithm,
+        )
+
+        validation = moved.validate()
+
+        passed = validation["valid"]
+
+        print(
+            f"  {algorithm}: "
+            f"{'PASS' if passed else 'FAIL'}"
+        )
+
+        if not passed:
+
+            for error in validation["errors"]:
+
+                print(
+                    f"    - {error}"
+                )
+
+            all_passed = False
+
+    print()
+
+    print(
+        "CubieState validation:",
+        "PASS" if all_passed else "FAILED",
+    )
+
+    return all_passed
+
+
+# ============================================================================
+# CubieState immutability
+# ============================================================================
+
+def _test_cubie_original_unchanged(
+    cube: CubieState,
+) -> bool:
+
+    original = _create_solved_cubie()
+
+    moved = apply_algorithm_cubie(
+        original,
+        "R U F D L B",
+    )
+
+    original_unchanged = _cubie_states_equal(
+        original,
+        cube,
+    )
+
+    moved_differs = not _cubie_states_equal(
+        moved,
+        cube,
+    )
+
+    print(
+        "Original CubieState unchanged:",
+        original_unchanged,
+    )
+
+    print(
+        "Returned CubieState differs:",
         moved_differs,
     )
 
@@ -1254,7 +1918,7 @@ def main() -> None:
     print()
 
     # ------------------------------------------------------------------------
-    # Solved cube
+    # CubeState
     # ------------------------------------------------------------------------
 
     cube = _create_solved_cube()
@@ -1269,19 +1933,11 @@ def main() -> None:
 
     print()
 
-    # ------------------------------------------------------------------------
-    # Basic tests
-    # ------------------------------------------------------------------------
-
     basic_passed = _test_basic_inverses(
         cube
     )
 
     print()
-
-    # ------------------------------------------------------------------------
-    # R2
-    # ------------------------------------------------------------------------
 
     moved = apply_algorithm(
         cube,
@@ -1298,19 +1954,11 @@ def main() -> None:
 
     print()
 
-    # ------------------------------------------------------------------------
-    # Four turns
-    # ------------------------------------------------------------------------
-
     four_turn_passed = _test_four_turns(
         cube
     )
 
     print()
-
-    # ------------------------------------------------------------------------
-    # Algorithm inverse
-    # ------------------------------------------------------------------------
 
     algorithm_inverse_passed = (
         _test_algorithm_inverse(
@@ -1320,10 +1968,6 @@ def main() -> None:
 
     print()
 
-    # ------------------------------------------------------------------------
-    # Validator
-    # ------------------------------------------------------------------------
-
     validator_passed = (
         _test_validator_integration(
             cube
@@ -1332,15 +1976,140 @@ def main() -> None:
 
     print()
 
-    # ------------------------------------------------------------------------
-    # Immutability
-    # ------------------------------------------------------------------------
-
     unchanged_passed = (
         _test_original_unchanged(
             cube
         )
     )
+
+    print()
+
+    # ------------------------------------------------------------------------
+    # CubieState
+    # ------------------------------------------------------------------------
+
+    print(
+        "========================================"
+    )
+
+    print(
+        "CubieState Move Engine"
+    )
+
+    print(
+        "========================================"
+    )
+
+    print()
+
+    cubie = _create_solved_cubie()
+
+    print(
+        "Solved CubieState:"
+    )
+
+    print(
+        cubie
+    )
+
+    print()
+
+    print(
+        f"Solved: {cubie.is_solved()}"
+    )
+
+    print(
+        f"Validation: {cubie.validate()['valid']}"
+    )
+
+    print()
+
+    cubie_inverse_passed = (
+        _test_cubie_basic_inverses(
+            cubie
+        )
+    )
+
+    print()
+
+    cubie_four_turn_passed = (
+        _test_cubie_four_turns(
+            cubie
+        )
+    )
+
+    print()
+
+    cubie_algorithm_inverse_passed = (
+        _test_cubie_algorithm_inverse(
+            cubie
+        )
+    )
+
+    print()
+
+    cubie_validation_passed = (
+        _test_cubie_validation(
+            cubie
+        )
+    )
+
+    print()
+
+    cubie_unchanged_passed = (
+        _test_cubie_original_unchanged(
+            cubie
+        )
+    )
+
+    print()
+
+    # ------------------------------------------------------------------------
+    # Example CubieState scramble
+    # ------------------------------------------------------------------------
+
+    scramble = (
+        "R U R' U'"
+    )
+
+    scrambled_cubie = apply_algorithm_cubie(
+        cubie,
+        scramble,
+    )
+
+    print(
+        "Example CubieState scramble:"
+    )
+
+    print(
+        f"  Algorithm: {scramble}"
+    )
+
+    print()
+
+    print(
+        scrambled_cubie
+    )
+
+    print()
+
+    print(
+        "Validation:"
+    )
+
+    validation = scrambled_cubie.validate()
+
+    print(
+        f"  Valid: {validation['valid']}"
+    )
+
+    if validation["errors"]:
+
+        for error in validation["errors"]:
+
+            print(
+                f"  - {error}"
+            )
 
     print()
 
@@ -1354,6 +2123,15 @@ def main() -> None:
         and algorithm_inverse_passed
         and validator_passed
         and unchanged_passed
+        and cubie_inverse_passed
+        and cubie_four_turn_passed
+        and cubie_algorithm_inverse_passed
+        and cubie_validation_passed
+        and cubie_unchanged_passed
+    )
+
+    print(
+        "========================================"
     )
 
     if all_passed:
@@ -1362,11 +2140,23 @@ def main() -> None:
             "Move engine tests PASSED."
         )
 
+        print(
+            "CubeState engine: PASS"
+        )
+
+        print(
+            "CubieState engine: PASS"
+        )
+
     else:
 
         print(
             "Move engine tests FAILED."
         )
+
+    print(
+        "========================================"
+    )
 
 
 # ============================================================================
