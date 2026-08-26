@@ -12,10 +12,10 @@ CubeAI is designed to go beyond traditional online cube solvers. Instead of simp
 
 [Report Bug](https://github.com/mhdhamka/CubeAI/issues) · [Request Feature](https://github.com/mhdhamka/CubeAI/issues)
 
-![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript\&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript)
 ![Next.js](https://img.shields.io/badge/Next.js-14.x-black?logo=next.js)
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python\&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776ab?logo=python&logoColor=white)
 ![Status](https://img.shields.io/badge/Status-In%20Development-orange)
 
 </div>
@@ -694,24 +694,6 @@ Testing categories include:
 * **End-to-End Tests** — Complete user workflows
 * **Visual Testing** — 3D rendering and animation behavior
 * **Validation Testing** — Detection of impossible cube states
-
----
-
-# Future Ideas
-
-CubeAI is intended to remain an experimental platform, and future development may explore:
-
-* AI-powered algorithm explanations
-* Mobile application support
-* AR cube visualization
-* Competitive leaderboards
-* Multiplayer challenges
-* Personalized training plans
-* Advanced speedcubing analytics
-* Adaptive learning models
-* Voice-guided solving assistance
-* Community algorithm sharing
-* Solver benchmarking laboratory
 
 ---
 
