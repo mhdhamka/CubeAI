@@ -358,6 +358,54 @@ class CubeScanSession:
 
         return result
 
+    def scan_camera(
+        self,
+        camera_index: int = 0,
+        window_name: str = "CubeAI Camera",
+    ) -> CubeScanResult:
+        """Guide the user through a six-face live camera scan.
+
+        Each face is captured with Space. Q or Escape cancels the workflow.
+        The detected center color must match the requested face order.
+        """
+
+        self.reset()
+        errors: list[str] = []
+
+        for face_name in FACE_NAMES:
+            expected_color = FACE_TO_COLOR[face_name]
+            result = self.scanner.scan_camera_face(
+                camera_index=camera_index,
+                window_name=window_name,
+                face_name=face_name,
+            )
+
+            if not result.success:
+                errors.append(f"{face_name}: {result.error}")
+                break
+
+            if result.face_name != face_name:
+                errors.append(
+                    f"Expected {face_name} ({expected_color}), "
+                    f"but detected {result.face_name or 'unknown'}."
+                )
+                break
+
+            if not self.add_scan(result):
+                errors.append(f"{face_name}: scan was rejected.")
+                break
+
+        if errors:
+            current = self.build_result()
+            current.success = False
+            current.error = " ".join(errors)
+            current.warnings.append(
+                "Camera workflow stopped; rescan the missing faces."
+            )
+            return current
+
+        return self.build_result()
+
 
     def is_complete(
         self,
@@ -843,6 +891,21 @@ def main() -> None:
     print(
         "-------------------"
     )
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "--camera":
+        camera_index = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+        result = CubeScanSession().scan_camera(
+            camera_index=camera_index,
+        )
+        print()
+        print(
+            "Six-face camera scan:",
+            "SUCCESS" if result.success else "FAILED",
+        )
+        if result.error:
+            print(f"  {result.error}")
+        print(json.dumps(result.to_dict(), indent=2))
+        return
 
     session = CubeScanSession()
 

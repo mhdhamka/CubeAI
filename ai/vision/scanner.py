@@ -631,6 +631,67 @@ class CubeScanner:
                 str(exc)
             )
 
+    def scan_camera_face(
+        self,
+        camera_index: int = 0,
+        window_name: str = "CubeAI Camera",
+        face_name: str | None = None,
+    ) -> ScanResult:
+        """Preview a camera feed and scan one face when Space is pressed.
+
+        Press ``Space`` to capture the current frame or ``Q``/Escape to
+        cancel. Detection is previewed with a bounding quadrilateral when
+        the configured detector provides one.
+        """
+
+        capture = cv2.VideoCapture(camera_index)
+        if not capture.isOpened():
+            return self._failure(
+                f"Could not open camera index {camera_index}."
+            )
+
+        captured: np.ndarray | None = None
+        try:
+            while True:
+                ok, frame = capture.read()
+                if not ok or frame is None:
+                    return self._failure("Could not read a frame from the camera.")
+
+                preview = frame.copy()
+                label = (
+                    f"Show {face_name} | SPACE capture | Q cancel"
+                    if face_name
+                    else "SPACE capture | Q cancel"
+                )
+                cv2.putText(
+                    preview, label, (20, 35), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (0, 255, 255), 2, cv2.LINE_AA,
+                )
+
+                try:
+                    detection = self.cube_detector.detect(frame)
+                    corners = getattr(detection, "corners", None)
+                    if corners is not None and len(corners) == 4:
+                        points = np.asarray(corners, dtype=np.int32).reshape((-1, 1, 2))
+                        cv2.polylines(preview, [points], True, (0, 255, 0), 2)
+                except Exception:
+                    pass
+
+                cv2.imshow(window_name, preview)
+                key = cv2.waitKey(1) & 0xFF
+                if key in (ord("q"), ord("Q"), 27):
+                    return self._failure("Camera scan cancelled.")
+                if key == 32:
+                    captured = frame.copy()
+                    break
+        finally:
+            capture.release()
+            cv2.destroyWindow(window_name)
+
+        return self.scan(captured) if captured is not None else self._failure(
+            "No camera frame was captured."
+        )
+
 
     # ========================================================================
     # Input validation
@@ -2942,6 +3003,18 @@ def main() -> None:
     print(
         "--------------"
     )
+
+    if len(sys.argv) >= 2 and sys.argv[1] == "--camera":
+        camera_index = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+        result = CubeScanner().scan_camera_face(
+            camera_index=camera_index,
+        )
+        print()
+        print("Camera scan:", "SUCCESS" if result.success else "FAILED")
+        if result.error:
+            print(f"  {result.error}")
+        print(json.dumps(result.to_dict(), indent=2))
+        return
 
     if len(sys.argv) == 7:
 
