@@ -917,7 +917,7 @@ def _corner_orientation_delta(piece_name: str, face: str) -> int:
         "U": {"UFR":0,"URB":0,"UBL":0,"ULF":0,"DFR":0,"DRB":0,"DBL":0,"DLF":0},
         "D": {"UFR":0,"URB":0,"UBL":0,"ULF":0,"DFR":0,"DRB":0,"DBL":0,"DLF":0},
         "R": {"UFR":2,"URB":1,"UBL":0,"ULF":0,"DFR":1,"DRB":2,"DBL":0,"DLF":0},
-        "L": {"UFR":0,"URB":0,"UBL":1,"ULF":2,"DFR":0,"DRB":0,"DBL":2,"DLF":1},
+        "L": {"UFR":0,"URB":0,"UBL":2,"ULF":1,"DFR":0,"DRB":0,"DBL":1,"DLF":2},
         "F": {"UFR":1,"URB":0,"UBL":0,"ULF":2,"DFR":2,"DRB":0,"DBL":0,"DLF":1},
         "B": {"UFR":0,"URB":2,"UBL":1,"ULF":0,"DFR":0,"DRB":1,"DBL":2,"DLF":0},
     }
