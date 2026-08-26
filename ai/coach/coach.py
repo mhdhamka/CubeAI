@@ -279,6 +279,50 @@ class AlgorithmExplanation:
         }
 
 
+@dataclass(frozen=True)
+class ContextualExplanation:
+    """Explain an algorithm in terms of a solving stage and learner goal."""
+
+    stage: str
+    purpose: str
+    recognition: str
+    focus: str
+    beginner_note: str
+    practice_recommendation: str
+
+    def to_dict(self) -> dict:
+        return {
+            "stage": self.stage,
+            "purpose": self.purpose,
+            "recognition": self.recognition,
+            "focus": self.focus,
+            "beginner_note": self.beginner_note,
+            "practice_recommendation": self.practice_recommendation,
+        }
+
+
+@dataclass(frozen=True)
+class TrainingProgress:
+    """Aggregated practice results for one algorithm or stage."""
+
+    attempts: int
+    successes: int
+    success_rate: float
+    average_accuracy: float
+    average_recognition_seconds: float
+    last_mistake: Optional[str]
+
+    def to_dict(self) -> dict:
+        return {
+            "attempts": self.attempts,
+            "successes": self.successes,
+            "success_rate": self.success_rate,
+            "average_accuracy": self.average_accuracy,
+            "average_recognition_seconds": self.average_recognition_seconds,
+            "last_mistake": self.last_mistake,
+        }
+
+
 # ============================================================================
 # Coach
 # ============================================================================
@@ -307,6 +351,7 @@ class Coach:
         self.algorithm = ""
         self.moves: list[Move] = []
         self.current_step = 0
+        self._training: dict[str, dict[str, object]] = {}
 
         if algorithm is not None:
             self.set_algorithm(
@@ -973,6 +1018,183 @@ class Coach:
         return tips
 
     # ========================================================================
+    # Contextual teaching
+    # ========================================================================
+
+    def explain_context(
+        self,
+        algorithm: str | None = None,
+        stage: str | None = None,
+    ) -> ContextualExplanation:
+        """Explain why an algorithm matters instead of only naming moves."""
+
+        self._ensure_engine()
+        text = self.algorithm if algorithm is None else algorithm.strip()
+        moves = parse_algorithm(text)
+        normalized_stage = (stage or "beginner").strip().upper()
+        stage_data = {
+            "F2L": (
+                "Pair a corner with its matching edge and insert the pair.",
+                "Look for a corner-edge pair before starting the sequence.",
+                "Track the pair through the slot; protect solved pairs.",
+                "Practice slowly and pause after each pair insertion.",
+            ),
+            "OLL": (
+                "Orient the last-layer stickers so the top face has one color.",
+                "Recognize the top-face pattern before turning.",
+                "Keep the cube orientation fixed and preserve the pattern.",
+                "Drill recognition first, then perform the algorithm without pauses.",
+            ),
+            "PLL": (
+                "Permute the last-layer pieces while keeping their orientation.",
+                "Identify which pieces need to cycle and which face is solved.",
+                "Use visible piece landmarks to avoid starting from the wrong angle.",
+                "Practice recognition from multiple AUF positions.",
+            ),
+            "BEGINNER": (
+                "Build confidence with controlled, deliberate face turns.",
+                "Read one move at a time and keep the front face fixed.",
+                "Prioritize accurate notation over speed.",
+                "Repeat short sequences until every turn feels automatic.",
+            ),
+        }
+        purpose, recognition, focus, recommendation = stage_data.get(
+            normalized_stage,
+            stage_data["BEGINNER"],
+        )
+        if normalized_stage not in stage_data:
+            normalized_stage = "BEGINNER"
+        return ContextualExplanation(
+            stage=normalized_stage,
+            purpose=purpose,
+            recognition=recognition,
+            focus=focus,
+            beginner_note=(
+                f"This sequence has {len(moves)} moves. Use a steady rhythm "
+                "and reset your grip if the cube orientation drifts."
+            ),
+            practice_recommendation=recommendation,
+        )
+
+    def analyze_mistake(
+        self,
+        actual_move: Move | str,
+    ) -> dict:
+        """Return a teachable diagnosis for the user's next-move error."""
+
+        result = self.check_move(actual_move)
+        if result.valid:
+            return {
+                "type": "correct",
+                "message": result.message,
+                "next_step": self.moves[self.current_step].__str__()
+                if self.current_step < len(self.moves)
+                else None,
+                "deviation": result.to_dict(),
+            }
+        if result.expected is None:
+            mistake_type = "completed_sequence"
+            action = "Review the full sequence, then start a new attempt."
+        elif result.actual and result.expected[0] == result.actual[0]:
+            mistake_type = "modifier_error"
+            action = "Check the prime mark or count two quarter turns."
+        else:
+            mistake_type = "face_error"
+            action = "Return to the fixed orientation and locate the expected face."
+        return {
+            "type": mistake_type,
+            "message": result.message,
+            "correction": action,
+            "deviation": result.to_dict(),
+        }
+
+    def answer_question(
+        self,
+        question: str,
+    ) -> dict:
+        """Answer common interactive beginner questions about the loaded sequence."""
+
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError("question must be a non-empty string.")
+        text = question.lower()
+        progress = self.progress()
+        if "next" in text or "move" in text:
+            answer = (
+                f"The next move is {self.moves[self.current_step]}."
+                if self.current_step < len(self.moves)
+                else "This sequence is complete."
+            )
+        elif "how many" in text or "left" in text or "remaining" in text:
+            answer = f"There are {progress.remaining_moves} moves remaining."
+        elif "prime" in text or "apostrophe" in text:
+            answer = "A prime mark means turn that face counter-clockwise."
+        elif "two" in text or "180" in text or "double" in text:
+            answer = "A 2 means turn the face halfway around, or 180 degrees."
+        elif "why" in text or "purpose" in text:
+            answer = self.explain_context().purpose
+        else:
+            answer = "Keep the cube fixed, follow the next move, and prioritize accuracy."
+        return {"question": question, "answer": answer, "progress": progress.to_dict()}
+
+    def record_attempt(
+        self,
+        key: str | None = None,
+        *,
+        success: bool,
+        accuracy: float,
+        recognition_seconds: float,
+        mistake: str | None = None,
+    ) -> TrainingProgress:
+        """Record one OLL/PLL/CFOP practice attempt."""
+
+        name = (key or self.algorithm or "beginner").strip() or "beginner"
+        record = self._training.setdefault(
+            name,
+            {"attempts": 0, "successes": 0, "accuracy": [], "recognition": [], "last_mistake": None},
+        )
+        record["attempts"] = int(record["attempts"]) + 1
+        record["successes"] = int(record["successes"]) + int(bool(success))
+        record["accuracy"].append(max(0.0, min(1.0, float(accuracy))))
+        record["recognition"].append(max(0.0, float(recognition_seconds)))
+        if mistake:
+            record["last_mistake"] = mistake
+        return self.training_progress(name)
+
+    def training_progress(self, key: str | None = None) -> TrainingProgress:
+        """Return metrics and preserve them in a JSON-friendly form."""
+
+        name = (key or self.algorithm or "beginner").strip() or "beginner"
+        record = self._training.get(name, {"attempts": 0, "successes": 0, "accuracy": [], "recognition": [], "last_mistake": None})
+        attempts = int(record["attempts"])
+        accuracies = record["accuracy"]
+        recognition = record["recognition"]
+        return TrainingProgress(
+            attempts=attempts,
+            successes=int(record["successes"]),
+            success_rate=round(int(record["successes"]) / attempts, 3) if attempts else 0.0,
+            average_accuracy=round(sum(accuracies) / len(accuracies), 3) if accuracies else 0.0,
+            average_recognition_seconds=round(sum(recognition) / len(recognition), 3) if recognition else 0.0,
+            last_mistake=record["last_mistake"],
+        )
+
+    def recommend_practice(self, key: str | None = None) -> list[str]:
+        """Generate personalized practice suggestions from recorded metrics."""
+
+        progress = self.training_progress(key)
+        recommendations = []
+        if progress.attempts == 0:
+            return ["Start with five slow, accurate attempts and record recognition time."]
+        if progress.average_accuracy < 0.9:
+            recommendations.append("Slow down and drill the sequence in groups of three moves.")
+        if progress.success_rate < 0.8:
+            recommendations.append("Repeat the recognition step before turning the first face.")
+        if progress.average_recognition_seconds > 5:
+            recommendations.append("Use spaced recognition drills without performing the algorithm.")
+        if not recommendations:
+            recommendations.append("Increase speed gradually while keeping accuracy above 90%.")
+        return recommendations
+
+    # ========================================================================
     # Completion
     # ========================================================================
 
@@ -1010,6 +1232,7 @@ class Coach:
 
         return {
             "algorithm": explanation.to_dict(),
+            "context": self.explain_context().to_dict(),
             "orientation": self.orientation_guidance(),
             "tips": self.beginner_tips(),
             "steps": [
@@ -1017,6 +1240,8 @@ class Coach:
                 for step in steps
             ],
             "progress": self.progress().to_dict(),
+            "training": self.training_progress().to_dict(),
+            "practice_recommendations": self.recommend_practice(),
         }
 
 
@@ -1266,6 +1491,34 @@ def _test_session() -> bool:
     return passed
 
 
+def _test_epic6_features() -> bool:
+    coach = Coach("R U R' U'")
+    context = coach.explain_context(stage="OLL")
+    question = coach.answer_question("What is the next move?")
+    mistake = coach.analyze_mistake("F")
+    progress = coach.record_attempt(
+        success=False,
+        accuracy=0.75,
+        recognition_seconds=6.0,
+        mistake="Started on the wrong face.",
+    )
+    recommendations = coach.recommend_practice()
+    passed = (
+        context.stage == "OLL"
+        and "R" in question["answer"]
+        and mistake["type"] == "face_error"
+        and progress.attempts == 1
+        and progress.success_rate == 0.0
+        and recommendations
+    )
+    print(
+        "Epic 6 coaching features test:",
+        "PASS" if passed else "FAIL",
+    )
+    print()
+    return passed
+
+
 # ============================================================================
 # Demonstration
 # ============================================================================
@@ -1509,6 +1762,7 @@ def main() -> None:
         _test_deviation_detection(),
         _test_orientation_guidance(),
         _test_session(),
+        _test_epic6_features(),
     )
 
     all_passed = all(
