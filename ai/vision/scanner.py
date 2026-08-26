@@ -47,7 +47,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass, asdict
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import cv2
 import numpy as np
@@ -115,6 +115,15 @@ else:
 
 EXPECTED_STICKERS = 9
 GRID_SIZE = 3
+
+FACE_NAMES = (
+    "U",
+    "R",
+    "F",
+    "D",
+    "L",
+    "B",
+)
 
 MIN_COLOR_CONFIDENCE = 0.55
 
@@ -2873,6 +2882,53 @@ def scan_image_json(
     )
 
 
+def scan_cube_images(
+    image_paths: Iterable[str],
+) -> Any:
+    """Scan six face images and return a validated engine CubeState result."""
+
+    from cubeStateBuilder import CubeStateBuildResult, CubeStateBuilder
+    from scanSession import CubeScanSession
+
+    paths = list(image_paths)
+
+    if len(paths) != len(FACE_NAMES):
+        return CubeStateBuildResult(
+            success=False,
+            errors=[
+                f"Expected 6 face images, received {len(paths)}."
+            ],
+            missing_faces=list(FACE_NAMES),
+        )
+
+    session = CubeScanSession()
+
+    for path in paths:
+        result = scan_image(path)
+
+        if not result.success:
+            return CubeStateBuildResult(
+                success=False,
+                scanned_faces=session.scanned_faces(),
+                missing_faces=session.missing_faces(),
+                errors=[
+                    f"Failed to scan '{path}': {result.error}"
+                ],
+            )
+
+        if not session.add_scan(result):
+            return CubeStateBuildResult(
+                success=False,
+                scanned_faces=session.scanned_faces(),
+                missing_faces=session.missing_faces(),
+                errors=[
+                    f"Scan for '{path}' was rejected by the scan session."
+                ],
+            )
+
+    return CubeStateBuilder().build(session)
+
+
 # ============================================================================
 # CLI
 # ============================================================================
@@ -2886,6 +2942,26 @@ def main() -> None:
     print(
         "--------------"
     )
+
+    if len(sys.argv) == 7:
+
+        result = scan_cube_images(
+            sys.argv[1:]
+        )
+
+        print()
+        print(
+            "CubeState pipeline:",
+            "SUCCESS" if result.success else "FAILED",
+        )
+
+        if result.errors:
+            for error in result.errors:
+                print(f"  ERROR: {error}")
+
+        print()
+        print(json.dumps(result.to_dict(), indent=2))
+        return
 
     if len(sys.argv) < 2:
 
@@ -2906,6 +2982,14 @@ def main() -> None:
         print(
             "  py ai\\vision\\scanner.py "
             "test-images\\cube-color.jpg"
+        )
+
+        print()
+
+        print(
+            "  py ai\\vision\\scanner.py "
+            "<U-image> <R-image> <F-image> "
+            "<D-image> <L-image> <B-image>"
         )
 
         return

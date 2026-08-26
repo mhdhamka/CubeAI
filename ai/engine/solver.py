@@ -967,9 +967,15 @@ def _test_single_move(
         scrambled
     )
 
+    restored = apply_solution(
+        scrambled,
+        result.solution,
+    )
+
     passed = (
         result.solved
         and result.verified
+        and is_solved(restored)
     )
 
     print(
@@ -1009,9 +1015,15 @@ def _test_algorithm(
         scrambled
     )
 
+    restored = apply_solution(
+        scrambled,
+        result.solution,
+    )
+
     passed = (
         result.solved
         and result.verified
+        and is_solved(restored)
     )
 
     print(
@@ -1284,6 +1296,16 @@ def main() -> None:
     print()
 
     # ========================================================================
+    # Standard-length scramble
+    # ========================================================================
+
+    standard_test = _test_algorithm(
+        "D2 F' U2 L R' B2 U F2 D' R2 U' B L2 F D2 R' U2 L' B F2"
+    )
+
+    print()
+
+    # ========================================================================
     # Final result
     # ========================================================================
 
@@ -1294,6 +1316,7 @@ def main() -> None:
         and short_test
         and medium_test
         and larger_test
+        and standard_test
     )
 
     if all_passed:

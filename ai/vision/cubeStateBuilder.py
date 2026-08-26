@@ -603,6 +603,13 @@ class CubeStateBuilder:
                 "faces",
             )
 
+        # CubeScanSession keeps FaceScan objects private and exposes its
+        # normalized face matrices through build_result().
+        if hasattr(session, "build_result"):
+            result = session.build_result()
+            if hasattr(result, "faces"):
+                return getattr(result, "faces")
+
         return None
 
     # ========================================================================
@@ -640,7 +647,8 @@ class CubeStateBuilder:
             )
 
         else:
-
+            if hasattr(session, "is_complete"):
+                return bool(session.is_complete())
             return None
 
         if value is None:
