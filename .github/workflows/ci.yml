@@ -24,13 +24,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          # Removed automatic caching since there's no requirements.txt yet
+          # Explicitly set cache to empty string to prevent it from looking for requirements.txt
+          cache: ''
 
       - name: Install Python dependencies / libraries
         run: |
           python -m pip install --upgrade pip
-          # Install common dependencies if needed later, e.g.:
-          # pip install opencv-python numpy
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       # --- 2. Node.js Environment Setup ---
@@ -49,5 +48,5 @@ jobs:
           # Verify that python modules compile without syntax errors
           python -m compileall ai/
 
-      - name: Build TypeScript / Web Application
-        run: npm run build
+      - name: Run TypeScript Tests (Vitest)
+        run: npm run test:run
