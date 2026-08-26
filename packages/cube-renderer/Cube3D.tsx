@@ -20,6 +20,8 @@ interface StickerDefinition {
   face: FaceName;
   index: number;
   position: Vector;
+  rotation: Vector;
+  cubie: Vector;
 }
 
 const FACE_LAYOUT: Record<FaceName, { normal: Vector; right: Vector; down: Vector }> = {
@@ -48,9 +50,34 @@ function stickerDefinitions(): StickerDefinition[] {
         layout.down,
         row - 1,
       );
-      return { face, index, position: addVector(position, layout.normal, 0.08) };
+      return {
+        face,
+        index,
+        position: addVector(position, layout.normal, 0.51),
+        rotation: faceRotation(face),
+        cubie: position,
+      };
     });
   });
+}
+
+function faceRotation(face: FaceName): Vector {
+  switch (face) {
+    case "U": return [-Math.PI / 2, 0, 0];
+    case "D": return [Math.PI / 2, 0, 0];
+    case "R": return [0, Math.PI / 2, 0];
+    case "L": return [0, -Math.PI / 2, 0];
+    case "B": return [0, Math.PI, 0];
+    default: return [0, 0, 0];
+  }
+}
+
+function cubiePositions(): Vector[] {
+  return [-1, 0, 1].flatMap((y) =>
+    [-1, 0, 1].flatMap((z) =>
+      [-1, 0, 1].map((x) => [x, y, z] as Vector),
+    ),
+  );
 }
 
 function animationTransform(move?: Move, progress = 0): { rotation: Vector; angle: number } {
@@ -69,6 +96,41 @@ function isTurningLayer(position: Vector, move?: Move): boolean {
   return position[0] * normal[0] + position[1] * normal[1] + position[2] * normal[2] > 0.5;
 }
 
+function Cubie({
+  position,
+  stickers,
+  state,
+  onFaceMove,
+}: {
+  position: Vector;
+  stickers: StickerDefinition[];
+  state: CubeState;
+  onFaceMove?: ((face: FaceName) => void) | undefined;
+}) {
+  return (
+    <group position={position}>
+      <mesh>
+        <boxGeometry args={[0.94, 0.94, 0.94]} />
+        <meshStandardMaterial color="#101412" roughness={0.5} />
+      </mesh>
+      {stickers.map(({ face, index, rotation }) => (
+        <mesh
+          key={`${face}-${index}`}
+          position={FACE_LAYOUT[face].normal.map((axis) => axis * 0.51) as Vector}
+          rotation={rotation}
+          onClick={(event) => {
+            event.stopPropagation();
+            onFaceMove?.(face);
+          }}
+        >
+          <planeGeometry args={[0.8, 0.8]} />
+          <meshStandardMaterial color={DEFAULT_FACE_COLORS[state[face][index] as CubeColor]} roughness={0.32} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 export function Cube3D({
   state,
   animationMove,
@@ -77,6 +139,7 @@ export function Cube3D({
   className,
 }: Cube3DProps) {
   const stickers = useMemo(() => stickerDefinitions(), []);
+  const cubies = useMemo(() => cubiePositions(), []);
   const animation = animationTransform(animationMove, animationProgress);
 
   return (
@@ -86,7 +149,12 @@ export function Cube3D({
         <ambientLight intensity={1.8} />
         <directionalLight position={[4, 6, 5]} intensity={3} />
         <group>
-          {stickers.map(({ face, index, position }) => {
+          {cubies.map((position) => {
+            const cubieStickers = stickers.filter((sticker) =>
+              sticker.cubie[0] === position[0] &&
+              sticker.cubie[1] === position[1] &&
+              sticker.cubie[2] === position[2],
+            );
             const turnsWithFace = isTurningLayer(position, animationMove);
             const rotation: Vector = turnsWithFace
               ? [
@@ -95,20 +163,7 @@ export function Cube3D({
                   animation.rotation[2] * animation.angle,
                 ]
               : [0, 0, 0];
-            return (
-              <group key={`${face}-${index}`} rotation={rotation}>
-                <mesh
-                  position={position}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onFaceMove?.(face);
-                  }}
-                >
-                  <boxGeometry args={[0.86, 0.86, 0.12]} />
-                  <meshStandardMaterial color={DEFAULT_FACE_COLORS[state[face][index] as CubeColor]} roughness={0.35} />
-                </mesh>
-              </group>
-            );
+            return <group key={position.join(":")} rotation={rotation}><Cubie position={position} stickers={cubieStickers} state={state} onFaceMove={onFaceMove} /></group>;
           })}
         </group>
         <OrbitControls enablePan={false} minDistance={4} maxDistance={10} />

@@ -9,7 +9,10 @@
   },
   "scripts": {
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "web:dev": "next dev apps/web",
+    "web:build": "next build apps/web",
+    "web:start": "next start apps/web"
   },
   "keywords": [],
   "author": "",
@@ -20,6 +23,8 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@types/three": "^0.185.4",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.3",
     "tsx": "^4.23.11",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
@@ -27,7 +32,9 @@
   "dependencies": {
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
+    "next": "^16.3.3",
     "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "three": "^0.185.1"
   }
 }
