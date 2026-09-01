@@ -33,10 +33,9 @@ export {
   useScanToSolveWorkflow,
 } from './hooks';
 
-export {
-  useScanSession,
-  ScanSessionStatus,
-} from './hooks-websocket';
+export { useScanSession } from './hooks-websocket';
+
+export { ScanSessionStatus } from './scan-session-status';
 
 export type {
   UseAPI,
