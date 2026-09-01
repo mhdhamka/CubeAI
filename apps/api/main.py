@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from .config import settings
+from config import settings
 from .errors import APIException, ErrorDetail, ErrorCode
 from .routes import health, solve, validate, scan, coaching, profiles, solves, statistics, ws
 from .db import init_db

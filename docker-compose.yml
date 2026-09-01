@@ -43,6 +43,7 @@ services:
         condition: service_healthy
     volumes:
       - ./apps/api:/app
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/health')"]
       interval: 30s
@@ -62,6 +63,7 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8000}
     container_name: cube-ai-web
+    working_dir: /app
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
@@ -71,8 +73,11 @@ services:
     depends_on:
       - api
     volumes:
-      - ./apps/web:/app
+      - ./:/app
       - /app/.next
+      - /app/node_modules
+      - /app/apps/web/node_modules
+    command: ["npm", "run", "web:dev"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 30s
