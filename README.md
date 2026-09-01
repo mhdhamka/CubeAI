@@ -126,7 +126,7 @@ CubeAI follows a modular architecture where the core cube domain is isolated fro
 # Containerized Architecture
 
 The development and deployment environment is organized into three primary services:
-
+```text
 ┌──────────────────────────────────────────────────────────────┐
 │                        Docker Compose                        │
 │                                                              │
@@ -884,56 +884,6 @@ Testing categories include:
 * **End-to-End Tests** — Complete user workflows
 * **Visual Testing** — 3D rendering and animation behavior
 * **Validation Testing** — Detection of impossible cube states
-
----
-
-# Project Structure 
-
-```text
-CubeAI/
-├── apps/
-│   ├── web/
-│   │   ├── app/
-│   │   ├── components/
-│   │   ├── features/
-│   │   └── lib/
-│   └── api/
-│       ├── routers/
-│       ├── services/
-│       ├── schemas/
-│       └── core/
-├── packages/
-│   ├── cube-core/
-│   ├── cube-renderer/
-│   ├── cube-solver/
-│   └── cube-notation/
-├── shared/
-│   ├── ai/
-│   ├── vision/
-│   ├── color-classifier/
-│   └── coach/
-├── database/
-│   ├── schema/
-│   ├── migrations/
-│   └── seeds/
-├── docs/
-│   ├── architecture/
-│   ├── algorithms/
-│   ├── api/
-│   └── decisions/
-├── tests/
-│   ├── integration/
-│   └── e2e/
-├── Dockerfile
-├── Dockerfile.web
-├── docker-compose.yml
-├── .dockerignore
-├── .env.example
-├── .env.docker
-├── package.json
-├── README.md
-└── LICENSE
-```
 
 ---
 
