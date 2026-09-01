@@ -1,8 +1,8 @@
 {
   "name": "Cube AI Dev Container",
   "dockerComposeFile": "../docker-compose.yml",
-  "service": "web", 
-  "workspaceFolder": "/workspace",
+  "service": "web",
+  "workspaceFolder": "/workspaces/CubeAI",
   "customizations": {
     "vscode": {
       "extensions": [
