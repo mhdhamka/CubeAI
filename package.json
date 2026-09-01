@@ -1,12 +1,17 @@
 {
   "name": "cube-ai",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
   "main": "index.js",
   "directories": {
     "doc": "docs",
     "test": "tests"
   },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "test": "vitest",
     "test:run": "vitest run",

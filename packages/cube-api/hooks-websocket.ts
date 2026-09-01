@@ -89,11 +89,8 @@ export interface UseScanSessionActions {
 
 export type UseScanSession = UseScanSessionState & UseScanSessionActions;
 
-/**
- * Hook for WebSocket real-time scanning
- */
 export function useScanSession(wsUrl?: string): UseScanSession {
-  const url = wsUrl || `${window.location.protocol.replace('http', 'ws')}//${window.location.host}/api/scan/session`;
+  const url = wsUrl || (typeof window !== 'undefined' ? `${window.location.protocol.replace('http', 'ws')}//${window.location.host}/api/scan/session` : '');
   
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
@@ -106,12 +103,11 @@ export function useScanSession(wsUrl?: string): UseScanSession {
   const [error, setError] = useState<string | null>(null);
   const [cubeState, setCubeState] = useState<any | null>(null);
 
-  // Connect to WebSocket
   useEffect(() => {
+    if (!url) return;
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
-      console.log('WebSocket connected');
       setConnected(true);
       setIsScanning(true);
       setError(null);
@@ -120,65 +116,47 @@ export function useScanSession(wsUrl?: string): UseScanSession {
     ws.onmessage = (event: MessageEvent) => {
       try {
         const message: ScanEvent = JSON.parse(event.data);
-
         switch (message.type) {
-          case 'scan_started': {
-            const evt = message as ScanStartedEvent;
-            setSessionId(evt.session_id);
+          case 'scan_started':
+            setSessionId((message as ScanStartedEvent).session_id);
             setFacesDetected(0);
             break;
-          }
-          case 'progress': {
-            const evt = message as ProgressEvent;
-            setCurrentFace(evt.face);
-            setConfidence(evt.confidence);
-            setFramesProcessed(evt.frames_processed);
+          case 'progress':
+            setCurrentFace((message as ProgressEvent).face);
+            setConfidence((message as ProgressEvent).confidence);
+            setFramesProcessed((message as ProgressEvent).frames_processed);
             break;
-          }
-          case 'face_detected': {
-            const evt = message as FaceDetectedEvent;
+          case 'face_detected':
             setFacesDetected((prev) => prev + 1);
-            setCurrentFace(evt.face);
-            setConfidence(evt.confidence);
+            setCurrentFace((message as FaceDetectedEvent).face);
+            setConfidence((message as FaceDetectedEvent).confidence);
             break;
-          }
-          case 'completed': {
-            const evt = message as CompletedEvent;
-            setCubeState(evt.cube_state);
+          case 'completed':
+            setCubeState((message as CompletedEvent).cube_state);
             setIsScanning(false);
             break;
-          }
-          case 'error': {
-            const evt = message as ErrorEvent;
-            setError(`${evt.code}: ${evt.message}`);
+          case 'error':
+            setError(`${(message as ErrorEvent).code}: ${(message as ErrorEvent).message}`);
             setIsScanning(false);
             break;
-          }
-          case 'cancel': {
-            const evt = message as CancelEvent;
-            setError(evt.reason);
+          case 'cancel':
+            setError((message as CancelEvent).reason);
             setIsScanning(false);
             break;
-          }
-          case 'retry': {
-            const evt = message as RetryEvent;
-            console.log(`Retry face ${evt.face}: ${evt.reason}`);
+          case 'retry':
             break;
-          }
         }
       } catch (err) {
         console.error('Failed to parse message:', err);
       }
     };
 
-    ws.onerror = (event: Event) => {
-      console.error('WebSocket error:', event);
+    ws.onerror = () => {
       setError('Connection error');
       setConnected(false);
     };
 
     ws.onclose = () => {
-      console.log('WebSocket disconnected');
       setConnected(false);
       setIsScanning(false);
     };
@@ -194,27 +172,19 @@ export function useScanSession(wsUrl?: string): UseScanSession {
 
   const sendFrame = useCallback((frameData: ArrayBuffer) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'frame',
-        data: frameData,
-      }));
+      wsRef.current.send(JSON.stringify({ type: 'frame', data: frameData }));
     }
   }, []);
 
   const cancel = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'cancel',
-      }));
+      wsRef.current.send(JSON.stringify({ type: 'cancel' }));
     }
   }, []);
 
   const retry = useCallback((faceNumber: number) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'retry',
-        face: faceNumber,
-      }));
+      wsRef.current.send(JSON.stringify({ type: 'retry', face: faceNumber }));
     }
   }, []);
 
@@ -246,9 +216,6 @@ export function useScanSession(wsUrl?: string): UseScanSession {
   };
 }
 
-/**
- * Component for displaying scan session status
- */
 export function ScanSessionStatus({ session }: { session: UseScanSession }) {
   if (!session.connected) {
     return <div>Not connected</div>;
