@@ -12,7 +12,9 @@
     "test:run": "vitest run",
     "web:dev": "next dev apps/web",
     "web:build": "next build apps/web",
-    "web:start": "next start apps/web"
+    "web:start": "next start apps/web",
+    "api:dev": "cd apps/api && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "api:install": "cd apps/api && pip install -r requirements.txt"
   },
   "keywords": [],
   "author": "",

@@ -1,0 +1,21 @@
+{
+  "name": "@cube-ai/cube-api",
+  "version": "1.0.0",
+  "description": "TypeScript client for CubeAI FastAPI backend",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "test": "vitest",
+    "lint": "eslint ."
+  },
+  "keywords": [
+    "cube",
+    "rubiks",
+    "solver",
+    "vision",
+    "api",
+    "client"
+  ],
+  "author": "",
+  "license": "ISC"
+}
