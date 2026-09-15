@@ -2,7 +2,7 @@
 
 # CubeAI
 
-### > AI-Powered Rubik's Cube Intelligence Platform
+> AI-Powered Rubik's Cube Intelligence Platform
 
 **An end-to-end Rubik's Cube platform combining a standalone cube engine, intelligent solving algorithms, interactive 3D simulation, computer vision scanning, speedcubing analytics, and an AI-powered coaching experience.**
 
