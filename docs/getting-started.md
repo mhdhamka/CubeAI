@@ -1,7 +1,7 @@
 
 # Getting Started
 
-> **Note:** CubeAI is currently under active development. The recommended way to run the complete platform is through Docker Compose, which starts the frontend, FastAPI backend, and PostgreSQL database together.
+> **Note:** The recommended way to run the complete platform is through Docker Compose, which starts the frontend, FastAPI backend, and PostgreSQL database together.
 
 ## Prerequisites
 
@@ -209,12 +209,11 @@ apps/api/requirements.txt
 For detailed Docker configuration, deployment commands, and troubleshooting, explore the [Docker Documentation Directory](./docs/docker/):
 
 ```text
-* `DOCKER-STATUS.md`
-* `DOCKER-DEPLOYMENT.md`
 * `docker.md`
 * `DOCKER README.md`
+* `DOCKER-STATUS.md`
+* `DOCKER-DEPLOYMENT.md`
 ```
 
 That's the actual integration you need: **Docker becomes the recommended full-stack setup, while the existing local Next.js/Python setup stays available for development.**
 
----
