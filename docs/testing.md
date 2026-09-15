@@ -1,4 +1,3 @@
-
 # Testing Strategy
 
 Because cube manipulation logic is highly state-dependent, testing is a critical part of the project.
@@ -22,6 +21,7 @@ R + R' = Solved State
 R R R R = Solved State
 
 Algorithm + Inverse Algorithm = Original State
+
 ```
 
 Testing categories include:
@@ -31,3 +31,24 @@ Testing categories include:
 * **End-to-End Tests** — Complete user workflows
 * **Visual Testing** — 3D rendering and animation behavior
 * **Validation Testing** — Detection of impossible cube states
+
+---
+
+### Test Structure & Fixtures
+
+The test suite is organized to validate everything from base components to computer vision pipelines using real sample assets:
+
+```text
+tests/
+├── cube.test.ts          # Core state and move validation tests
+├── cubie.test.ts         # Individual piece rotation logic
+├── notation.test.ts      # Move notation parser tests
+├── renderer.test.ts      # 3D abstraction and rendering tests
+└── solver.test.ts        # Solving algorithm integration tests
+
+# Vision & Scanner Test Assets
+├── cube.jpg              # Sample physical cube photo for scanner tests
+└── cube-color.jpg        # Sample sticker color-detection fixture
+
+```
+> **Quick Navigation:** Explore the test suite in [tests/](../tests/) or view sample assets in [test-images]
