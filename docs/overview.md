@@ -42,4 +42,4 @@ The long-term goal is to support multiple types of users:
 
 CubeAI follows a modular architecture where the core cube domain is isolated from presentation and external services.
 
-> **Explore Further:** For detailed breakdowns of system flows, container structures, and component design, check out the [Architecture Documentation Directory](./architecture/).
+> **Explore Further:** For detailed breakdowns of system flows, container structures, and component design, check out the [Architecture Documentation Directory](./architecture.md).
