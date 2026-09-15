@@ -208,11 +208,11 @@ apps/api/requirements.txt
 
 For detailed Docker configuration, deployment commands, and troubleshooting, explore the [Docker Documentation Directory](./docs/docker/):
 
+```text
 * `DOCKER-STATUS.md`
 * `DOCKER-DEPLOYMENT.md`
 * `docker.md`
 * `DOCKER README.md`
-
 ```
 
 That's the actual integration you need: **Docker becomes the recommended full-stack setup, while the existing local Next.js/Python setup stays available for development.**
