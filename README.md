@@ -8,7 +8,7 @@
 
 CubeAI is designed to go beyond traditional online cube solvers. Instead of simply returning a sequence of moves, the platform aims to help users **understand, visualize, practice, and improve** how they solve the cube.
 
-[Explore the Project](#./docs/overview/) · [Architecture](./docs/architecture/) · [Features](#./docs/features/) · [Getting Started](#-getting-started) · [Roadmap](#-roadmap)
+[Explore the Project](./docs/overview/) · [Architecture](./docs/architecture/) · [Features](./docs/features/) · [Getting Started](-getting-started) · [Roadmap](./docs/roadmap)
 
 [Report Bug](https://github.com/mhdhamka/CubeAI/issues) · [Request Feature](https://github.com/mhdhamka/CubeAI/issues)
 
@@ -19,46 +19,6 @@ CubeAI is designed to go beyond traditional online cube solvers. Instead of simp
 ![Status](https://img.shields.io/badge/Status-In%20Development-orange)
 
 </div>
-
----
-
-# Architecture Principles
-
-CubeAI is being designed around several engineering principles.
-
-### 1. Core Logic Is Framework Independent
-
-The cube engine should not depend directly on:
-
-* React
-* Next.js
-* Three.js
-* FastAPI
-* OpenCV
-
-This allows the domain logic to be tested and reused independently.
-
-### 2. The Cube State Is the Source of Truth
-
-Every system works with a validated representation of the cube.
-
-```text
-Camera ──────┐
-Manual Input ├──► CubeState ◄── Solver
-3D Renderer ─┘       │
-                     ▼
-                 Validation
-```
-
-### 3. Services Should Be Replaceable
-
-The solver, AI provider, computer vision implementation, or frontend should be replaceable without rewriting the entire platform.
-
-### 4. Visualization Is Separate From Simulation
-
-The 3D engine is responsible for presenting the cube visually. The Cube Core Engine remains responsible for determining what the cube actually looks like.
-
----
 
 # Getting Started
 

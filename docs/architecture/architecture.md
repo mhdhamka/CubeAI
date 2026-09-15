@@ -134,9 +134,45 @@ User Visualization      Explanation & Feedback
                   ▼
           Progress & Insights
 ```
-
 ---
 
+# Architecture Principles
+
+CubeAI is being designed around several engineering principles.
+
+### 1. Core Logic Is Framework Independent
+
+The cube engine should not depend directly on:
+
+* React
+* Next.js
+* Three.js
+* FastAPI
+* OpenCV
+
+This allows the domain logic to be tested and reused independently.
+
+### 2. The Cube State Is the Source of Truth
+
+Every system works with a validated representation of the cube.
+
+```text
+Camera ──────┐
+Manual Input ├──► CubeState ◄── Solver
+3D Renderer ─┘       │
+                     ▼
+                 Validation
+```
+
+### 3. Services Should Be Replaceable
+
+The solver, AI provider, computer vision implementation, or frontend should be replaceable without rewriting the entire platform.
+
+### 4. Visualization Is Separate From Simulation
+
+The 3D engine is responsible for presenting the cube visually. The Cube Core Engine remains responsible for determining what the cube actually looks like.
+
+---
 
 # Technology Stack
 
