@@ -4,7 +4,7 @@
 
 > AI-Powered Rubik's Cube Intelligence Platform
 
-[Explore the Project](./docs/overview.md) · [Architecture](./docs/architecture.md) · [Features](./docs/features.md) · [Getting Started](./docs/getting-started.md) · [Testing](./docs/testing) · [Roadmap](./docs/roadmap)
+[Explore the Project](./docs/overview.md) · [Architecture](./docs/architecture.md) · [Features](./docs/features.md) · [Getting Started](./docs/getting-started.md) · [Testing](./docs/testing.md) · [Roadmap](./docs/roadmap)
 
 [Report Bug](https://github.com/mhdhamka/CubeAI/issues) · [Request Feature](https://github.com/mhdhamka/CubeAI/issues)
 
