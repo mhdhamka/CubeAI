@@ -51,4 +51,4 @@ tests/
 └── cube-color.jpg        # Sample sticker color-detection fixture
 
 ```
-> **Quick Navigation:** Explore the test suite in [tests/](../tests/) or view sample assets in [test-images]
+> **Quick Navigation:** Explore the test suite in [tests](../tests/) or view sample assets in [test-images](../test-images/)
