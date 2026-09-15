@@ -8,7 +8,7 @@
 
 CubeAI is designed to go beyond traditional online cube solvers. Instead of simply returning a sequence of moves, the platform aims to help users **understand, visualize, practice, and improve** how they solve the cube.
 
-[Explore the Project](#-overview) · [Architecture](#-system-architecture) · [Features](#-key-features) · [Getting Started](#-getting-started) · [Roadmap](#-roadmap)
+[Explore the Project](#-overview) · [Architecture](./docs/architecture/) · [Features](#-key-features) · [Getting Started](#-getting-started) · [Roadmap](#-roadmap)
 
 [Report Bug](https://github.com/mhdhamka/CubeAI/issues) · [Request Feature](https://github.com/mhdhamka/CubeAI/issues)
 
