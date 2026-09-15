@@ -206,12 +206,12 @@ docker-compose.yml      # Web + API + PostgreSQL
 apps/api/requirements.txt
 ```
 
-For detailed Docker configuration, deployment commands, and troubleshooting, see:
+For detailed Docker configuration, deployment commands, and troubleshooting, see [Docker](./docs/docker/):
 
-* `DOCKER-QUICKSTART.md`
+* `DOCKER-STATUS.md`
 * `DOCKER-DEPLOYMENT.md`
-* `phase-10-docker.md`
-* `PHASE-10-README.md`
+* `docker.md`
+* `DOCKER README.md`
 
 ```
 
