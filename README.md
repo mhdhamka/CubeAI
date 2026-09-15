@@ -20,6 +20,8 @@ CubeAI is designed to go beyond traditional online cube solvers. Instead of simp
 
 </div>
 
+---
+
 # Getting Started
 
 > **Note:** CubeAI is currently under active development. The recommended way to run the complete platform is through Docker Compose, which starts the frontend, FastAPI backend, and PostgreSQL database together.
