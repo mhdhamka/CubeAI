@@ -6,12 +6,15 @@ Bridges to Python coaching logic in ai/coach/.
 import logging
 from typing import Optional
 
+import httpx
+
+from ..config import settings
 from ..models import (
-    CubeStateModel,
-    MoveModel,
     CoachingRequest,
     CoachingResponse,
 )
+from .cube_state import to_cubie_state
+from move import apply_algorithm_cubie
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,7 @@ class CoachingService:
         """Initialize coaching service."""
         self.logger = logger
         
-    def get_coaching(self, request: CoachingRequest) -> CoachingResponse:
+    async def get_coaching(self, request: CoachingRequest) -> CoachingResponse:
         """
         Get coaching explanation for a solution.
         
@@ -52,15 +55,47 @@ class CoachingService:
             },
         )
         
-        # TODO Phase 6: Bridge to Python coaching pipeline (ai/coach/coach.py)
-        # Real implementation will:
-        # 1. Parse solution moves
-        # 2. Identify algorithms used
-        # 3. Provide step-by-step explanation
-        # 4. Suggest improvements or alternative approaches
-        # 5. Identify learning opportunities
-        
-        return self._get_deterministic_coaching(request)
+        completes_cube = self._solution_completes_cube(request)
+        if settings.COACHING_PROVIDER.lower() == "external" and settings.COACHING_EXTERNAL_URL:
+            try:
+                headers = {}
+                if settings.COACHING_EXTERNAL_API_KEY:
+                    headers["Authorization"] = f"Bearer {settings.COACHING_EXTERNAL_API_KEY}"
+                payload = request.model_dump(mode="json")
+                payload["solution_is_complete"] = completes_cube
+                async with httpx.AsyncClient(timeout=settings.REQUEST_TIMEOUT) as client:
+                    response = await client.post(
+                        settings.COACHING_EXTERNAL_URL,
+                        json=payload,
+                        headers=headers,
+                    )
+                    response.raise_for_status()
+                    return CoachingResponse.model_validate(response.json())
+            except (httpx.HTTPError, ValueError) as exc:
+                self.logger.warning("External coaching unavailable; using deterministic fallback: %s", exc)
+
+        coaching = self._get_deterministic_coaching(request)
+        if completes_cube is False:
+            coaching.key_points.insert(
+                0,
+                "This move sequence does not solve the supplied cube state; review the state or solution before execution.",
+            )
+            coaching.explanation = (
+                "The supplied sequence does not solve the current cube state. "
+                + coaching.explanation
+            )
+        elif completes_cube is True:
+            coaching.key_points.insert(0, "The proposed sequence was verified against the supplied cube state.")
+        return coaching
+
+    @staticmethod
+    def _solution_completes_cube(request: CoachingRequest) -> bool | None:
+        try:
+            cube = to_cubie_state(request.cube_state)
+            notation = " ".join(move.notation for move in request.solution_moves)
+            return apply_algorithm_cubie(cube, notation).is_solved()
+        except (TypeError, ValueError):
+            return None
     
     def _get_deterministic_coaching(self, request: CoachingRequest) -> CoachingResponse:
         """

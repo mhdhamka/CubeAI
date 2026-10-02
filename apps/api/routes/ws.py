@@ -6,10 +6,14 @@ Supports streaming cube detection progress and live camera feeds.
 import logging
 import json
 import asyncio
+import time
 from datetime import datetime
 from uuid import uuid4
 from fastapi import APIRouter, WebSocketException, status, Depends
 from fastapi.websockets import WebSocket
+from ..errors import APIException, ScanFailedError
+from ..config import settings
+from ..services import get_vision_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["websocket"])
@@ -30,18 +34,24 @@ class ScanEvent:
         }
     
     @staticmethod
-    def progress(face: int, confidence: float, frame_count: int) -> dict:
+    def progress(
+        face: int,
+        confidence: float,
+        frame_count: int,
+        requested_face: str | None = None,
+    ) -> dict:
         """Progress update during scanning."""
         return {
             "type": "progress",
             "face": face,
             "confidence": confidence,
             "frames_processed": frame_count,
+            "requested_face": requested_face,
             "timestamp": datetime.utcnow().isoformat(),
         }
     
     @staticmethod
-    def face_detected(face: int, stickers: list, confidence: float) -> dict:
+    def face_detected(face: str, stickers: list, confidence: float) -> dict:
         """Single face detected."""
         return {
             "type": "face_detected",
@@ -52,7 +62,7 @@ class ScanEvent:
         }
     
     @staticmethod
-    def retry(face: int, reason: str) -> dict:
+    def retry(face: str, reason: str) -> dict:
         """Request to retry scanning a face."""
         return {
             "type": "retry",
@@ -211,111 +221,131 @@ async def websocket_scan_session(websocket: WebSocket):
     ```
     """
     session_id = str(uuid4())
-    
+    vision = get_vision_service()
+    session = vision.create_scan_session()
+    frame_count = 0
+    started_at = time.perf_counter()
+    requested_face = session.missing_faces()[0]
+    retry_counts: dict[str, int] = {}
+
     try:
         await manager.connect(websocket, session_id)
-        
-        # Send initialization event
+        await manager.send_personal(session_id, ScanEvent.started(session_id))
         await manager.send_personal(
             session_id,
-            ScanEvent.started(session_id),
+            ScanEvent.progress(face=1, confidence=0, frame_count=0, requested_face=requested_face),
         )
-        
-        # Simulate scanning workflow
-        # In production, this would integrate with vision service
-        frame_count = 0
-        detected_faces = {}
-        
+
         while True:
             try:
-                # Receive message from client
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=300.0)
-                message = json.loads(data)
-                
-                if message.get("type") == "cancel":
-                    await manager.send_personal(
-                        session_id,
-                        ScanEvent.cancel("User cancelled"),
-                    )
+                event = await asyncio.wait_for(websocket.receive(), timeout=300.0)
+                if event["type"] == "websocket.disconnect":
                     break
-                
-                elif message.get("type") == "frame":
-                    # Process frame
+
+                if event.get("bytes") is not None:
                     frame_count += 1
-                    
-                    # Send progress
+                    try:
+                        result = vision.scan_face(session, event["bytes"])
+                    except ScanFailedError as exc:
+                        retry_face = (exc.details or {}).get("face", requested_face)
+                        retry_counts[retry_face] = retry_counts.get(retry_face, 0) + 1
+                        if retry_counts[retry_face] > settings.SCAN_MAX_RETRIES:
+                            await manager.send_personal(
+                                session_id,
+                                ScanEvent.error("SCAN_RETRIES_EXHAUSTED", exc.message),
+                            )
+                            break
+                        next_face = retry_face if retry_face in session.missing_faces() else (
+                            session.missing_faces()[0] if session.missing_faces() else requested_face
+                        )
+                        requested_face = next_face
+                        await manager.send_personal(
+                            session_id,
+                            ScanEvent.retry(next_face, exc.message),
+                        )
+                        continue
+
+                    requested_face = session.missing_faces()[0] if session.missing_faces() else result.face_name
                     await manager.send_personal(
                         session_id,
                         ScanEvent.progress(
-                            face=len(detected_faces) + 1,
-                            confidence=0.85,
+                            face=len(session.scanned_faces()),
+                            confidence=result.confidence,
                             frame_count=frame_count,
+                            requested_face=requested_face,
                         ),
                     )
-                    
-                    # Simulate face detection
-                    if frame_count % 30 == 0:  # Every 30 frames, detect a face
-                        face_num = len(detected_faces) + 1
-                        
-                        # Simulated sticker colors (white, yellow, red, orange, blue, green)
-                        stickers = [0] * 9  # 9 stickers per face
-                        
-                        await manager.send_personal(
-                            session_id,
-                            ScanEvent.face_detected(
-                                face=face_num,
-                                stickers=stickers,
-                                confidence=0.92,
-                            ),
-                        )
-                        
-                        detected_faces[face_num] = stickers
-                    
-                    # Check if all 6 faces detected
-                    if len(detected_faces) == 6:
-                        cube_state = {
-                            "corners": [0, 1, 2, 3, 4, 5, 6, 7],
-                            "corner_orientations": [0] * 8,
-                            "edges": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-                            "edge_orientations": [0] * 12,
-                        }
-                        
-                        await manager.send_personal(
-                            session_id,
-                            ScanEvent.completed(
-                                session_id=session_id,
-                                cube_state=cube_state,
-                                confidence=0.88,
-                            ),
-                        )
-                        break
-                
-                elif message.get("type") == "retry":
-                    # Retry last face
-                    face_num = message.get("face", len(detected_faces))
                     await manager.send_personal(
                         session_id,
-                        ScanEvent.retry(
-                            face=face_num,
-                            reason="Quality too low, please retry",
+                        ScanEvent.face_detected(
+                            face=result.face_name,
+                            stickers=[color for row in result.colors for color in row],
+                            confidence=result.confidence,
                         ),
                     )
-                
+
+                    if session.is_complete():
+                        scan = vision.complete_scan(
+                            session,
+                            int((time.perf_counter() - started_at) * 1000),
+                        )
+                        await manager.send_personal(
+                            session_id,
+                            {
+                                **ScanEvent.completed(
+                                    session_id,
+                                    scan.cube_state.model_dump(),
+                                    scan.metadata.confidence,
+                                ),
+                                "faces": scan.faces,
+                                "metadata": scan.metadata.model_dump(),
+                                "validation": scan.validation.model_dump(),
+                            },
+                        )
+                        break
+
+                elif event.get("text") is not None:
+                    try:
+                        message = json.loads(event["text"])
+                    except json.JSONDecodeError:
+                        await manager.send_personal(
+                            session_id,
+                            ScanEvent.error("INVALID_JSON", "Expected a JSON retry or cancel event"),
+                        )
+                        continue
+
+                    if message.get("type") == "cancel":
+                        await manager.send_personal(session_id, ScanEvent.cancel("User cancelled"))
+                        break
+                    if message.get("type") == "retry":
+                        face = message.get("face") or requested_face
+                        if face not in {"U", "R", "F", "D", "L", "B"}:
+                            await manager.send_personal(
+                                session_id,
+                                ScanEvent.error("INVALID_FACE", "Retry face must be U, R, F, D, L, or B"),
+                            )
+                            continue
+                        session.retry_face(face)
+                        requested_face = face
+                        await manager.send_personal(
+                            session_id,
+                            ScanEvent.retry(face, "Capture this face again"),
+                        )
+
             except asyncio.TimeoutError:
                 await manager.send_personal(
                     session_id,
-                    ScanEvent.error("TIMEOUT", "Scan session timeout"),
+                    ScanEvent.error("TIMEOUT", "Scan session timed out"),
                 )
                 break
-            
-            except json.JSONDecodeError:
+            except APIException as exc:
                 await manager.send_personal(
                     session_id,
-                    ScanEvent.error("INVALID_JSON", "Invalid message format"),
+                    ScanEvent.error(exc.code.value, exc.message),
                 )
-    
-    except WebSocketException as e:
-        logger.error(f"WebSocket exception: {e}")
-    
+                break
+
+    except WebSocketException as exc:
+        logger.error("WebSocket exception: %s", exc)
     finally:
         manager.disconnect(session_id)

@@ -11,7 +11,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./database/schema:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cubeai} -d ${DB_NAME:-cube_ai_db}"]
       interval: 10s
@@ -26,6 +25,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    command: ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     container_name: cube-ai-api
     environment:
       SERVICE_NAME: ${SERVICE_NAME:-CubeAI API}
@@ -34,18 +34,18 @@ services:
       HOST: ${API_HOST:-0.0.0.0}
       PORT: ${API_PORT:-8000}
       DATABASE_URL: postgresql://${DB_USER:-cubeai}:${DB_PASSWORD:-changeme123}@postgres:5432/${DB_NAME:-cube_ai_db}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}'
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "8000:8000"
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./ai:/app/ai
     depends_on:
       postgres:
         condition: service_healthy
-    volumes:
-      - ./apps/api:/app
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=2)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -59,6 +59,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
+      target: development
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8000}
@@ -71,15 +72,16 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     volumes:
       - ./:/app
       - /app/.next
       - /app/node_modules
       - /app/apps/web/node_modules
-    command: ["npm", "run", "web:dev"]
+    command: ["npm", "run", "web:dev", "--", "--hostname", "0.0.0.0"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -91,4 +91,4 @@ async def get_coaching(request: CoachingRequest) -> CoachingResponse:
     - `x/y/z` - Cube rotations
     """
     coaching = get_coaching_service()
-    return coaching.get_coaching(request)
+    return await coaching.get_coaching(request)

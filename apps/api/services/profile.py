@@ -14,6 +14,32 @@ logger = logging.getLogger(__name__)
 
 class ProfileService:
     """Service for managing user profiles."""
+
+    @staticmethod
+    def get_or_create_guest_profile(db: Session) -> Profile:
+        """Return the local demo profile, creating it once when needed."""
+        user = db.query(User).filter(User.username == "cubeai-guest").first()
+        if user is None:
+            user = User(
+                username="cubeai-guest",
+                email="cubeai-guest@localhost.invalid",
+                hashed_password="disabled-local-profile",
+            )
+            db.add(user)
+            db.flush()
+
+        profile = (
+            db.query(Profile)
+            .filter(Profile.user_id == user.id, Profile.name == "Cube Lab")
+            .first()
+        )
+        if profile is None:
+            profile = Profile(user_id=user.id, name="Cube Lab")
+            db.add(profile)
+
+        db.commit()
+        db.refresh(profile)
+        return profile
     
     @staticmethod
     def create_profile(db: Session, profile_data: dict) -> Profile:

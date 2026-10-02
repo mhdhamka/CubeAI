@@ -6,6 +6,7 @@
 
 import type {
   CubeState,
+  CubeStateInput,
   Move,
   SolveRequest,
   SolveResponse,
@@ -19,7 +20,22 @@ import type {
   Statistics,
   CoachingRequest,
   CoachingResponse,
+  TrainingAttempt,
 } from './types';
+
+function describeError(errorData: ErrorDetail | null, status: number): string {
+  if (errorData?.message) return errorData.message;
+  if (typeof errorData?.detail === 'string') return errorData.detail;
+  if (Array.isArray(errorData?.detail)) {
+    return errorData.detail
+      .map((item) => {
+        const location = item.loc?.join('.') || 'request';
+        return `${location}: ${item.msg || 'invalid value'}`;
+      })
+      .join('; ');
+  }
+  return `HTTP ${status}`;
+}
 
 export interface ClientConfig {
   baseUrl?: string;
@@ -43,7 +59,7 @@ export class CubeAIClient {
   private timeout: number;
 
   constructor(config: ClientConfig = {}) {
-    this.baseUrl = config.baseUrl || 'http://localhost:8000';
+    this.baseUrl = config.baseUrl || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     this.timeout = config.timeout || 30000;
   }
 
@@ -83,7 +99,7 @@ export class CubeAIClient {
 
         throw new APIError(
           errorData?.code || 'API_ERROR',
-          errorData?.message || `HTTP ${response.status}`,
+          describeError(errorData, response.status),
           response.status,
           errorData?.details,
         );
@@ -167,9 +183,12 @@ export class CubeAIClient {
    * Scan an image for cube state.
    * Uploads image and returns detected cube state with confidence.
    */
-  async scanImage(imageFile: File): Promise<ScanResponse> {
+  async scanImage(imageFiles: File | File[]): Promise<ScanResponse> {
     const formData = new FormData();
-    formData.append('file', imageFile);
+    const files = Array.isArray(imageFiles) ? imageFiles : [imageFiles];
+    for (const imageFile of files) {
+      formData.append(files.length === 1 ? 'file' : 'files', imageFile);
+    }
 
     const url = `${this.baseUrl}/api/scan/image`;
     const controller = new AbortController();
@@ -194,7 +213,7 @@ export class CubeAIClient {
 
         throw new APIError(
           errorData?.code || 'API_ERROR',
-          errorData?.message || `HTTP ${response.status}`,
+          describeError(errorData, response.status),
           response.status,
           errorData?.details,
         );
@@ -239,13 +258,17 @@ export class CubeAIClient {
     return this.request<Profile>('POST', '/api/profiles', profile);
   }
 
+  async getOrCreateGuestProfile(): Promise<Profile> {
+    return this.request<Profile>('POST', '/api/profiles/guest');
+  }
+
   // ==================== Solve Record Endpoints (Phase 7+) ====================
 
   /**
    * Get all solve records for a profile.
    */
   async getSolves(profileId: number): Promise<SolveRecord[]> {
-    return this.request<SolveRecord[]>('GET', `/api/profiles/${profileId}/solves`);
+    return this.request<SolveRecord[]>('GET', `/api/solves?profile_id=${profileId}`);
   }
 
   /**
@@ -262,6 +285,19 @@ export class CubeAIClient {
    */
   async getStatistics(profileId: number): Promise<Statistics> {
     return this.request<Statistics>('GET', `/api/profiles/${profileId}/statistics`);
+  }
+
+  async getTrainingAttempts(profileId: number): Promise<TrainingAttempt[]> {
+    return this.request<TrainingAttempt[]>(
+      'GET',
+      `/api/profiles/${profileId}/training`,
+    );
+  }
+
+  async createTrainingAttempt(
+    attempt: Omit<TrainingAttempt, 'id' | 'created_at'>,
+  ): Promise<TrainingAttempt> {
+    return this.request<TrainingAttempt>('POST', '/api/training', attempt);
   }
 
   // ==================== Coaching Endpoints (Phase 6+) ====================
@@ -290,4 +326,4 @@ export class CubeAIClient {
 export const apiClient = new CubeAIClient();
 
 // Re-export types
-export type { CubeState, Move, SolveRequest, SolveResponse, ValidateRequest, ValidateResponse };
+export type { CubeState, CubeStateInput, Move, SolveRequest, SolveResponse, ValidateRequest, ValidateResponse };

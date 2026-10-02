@@ -4,8 +4,9 @@ Provides REST API for scanning images and extracting cube states.
 """
 
 import logging
-from fastapi import APIRouter, File, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
+from ..config import settings
 from ..models import ScanResponse
 from ..services import get_vision_service
 
@@ -24,7 +25,10 @@ router = APIRouter(prefix="/api", tags=["vision"])
         422: {"description": "Image processing failed or confidence too low"},
     },
 )
-async def scan_image(file: UploadFile = File(...)) -> ScanResponse:
+async def scan_image(
+    files: list[UploadFile] | None = File(default=None),
+    file: UploadFile | None = File(default=None),
+) -> ScanResponse:
     """
     Scan a Rubik's cube image and extract the cube state.
     
@@ -77,8 +81,27 @@ async def scan_image(file: UploadFile = File(...)) -> ScanResponse:
     """
     vision = get_vision_service()
     
-    # Read image data
-    image_data = await file.read()
+    uploads = files or ([file] if file is not None else [])
+    if not uploads:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Upload one or more face images using the 'files' field.",
+        )
+    if len(uploads) > 6:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="A cube scan accepts at most six face images.",
+        )
+
+    image_data = []
+    for upload in uploads:
+        data = await upload.read(settings.MAX_UPLOAD_SIZE + 1)
+        if len(data) > settings.MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"{upload.filename or 'Image'} exceeds the 10 MB upload limit.",
+            )
+        image_data.append(data)
     
     # Scan image and return result
     return await vision.scan_image(image_data)

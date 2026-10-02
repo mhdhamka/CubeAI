@@ -143,6 +143,7 @@ def solve_to_model(solve: SolveRecord) -> SolveRecordModel:
         confidence=solve.confidence,
         is_dnf=solve.is_dnf,
         is_dns=solve.is_dns,
+        penalty_ms=solve.penalty_ms or 0,
         notes=solve.notes,
         created_at=solve.created_at,
     )

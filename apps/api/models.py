@@ -3,8 +3,8 @@ Shared data models and types for CubeAI API.
 Includes request/response schemas and domain models.
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from pydantic import BaseModel, Field, model_validator
+from typing import Optional, List, Union
 from datetime import datetime
 
 
@@ -33,6 +33,28 @@ class CubeStateModel(BaseModel):
     edge_orientations: List[int] = Field(..., min_length=12, max_length=12, description="Edge orientations")
 
 
+class StickerCubeStateModel(BaseModel):
+    """Cube state as six row-major faces of sticker color codes."""
+
+    faces: dict[str, list[list[str]]]
+
+    @model_validator(mode="after")
+    def validate_faces(self):
+        expected_faces = {"U", "R", "F", "D", "L", "B"}
+        valid_colors = {"W", "Y", "R", "O", "G", "B", "WHITE", "YELLOW", "RED", "ORANGE", "GREEN", "BLUE"}
+        if set(self.faces) != expected_faces:
+            raise ValueError("faces must contain exactly U, R, F, D, L, and B")
+        for face, rows in self.faces.items():
+            if len(rows) != 3 or any(len(row) != 3 for row in rows):
+                raise ValueError(f"face {face} must be a 3x3 sticker grid")
+            if any(str(color).upper() not in valid_colors for row in rows for color in row):
+                raise ValueError(f"face {face} contains an unsupported sticker color")
+        return self
+
+
+CubeStateInput = Union[CubeStateModel, StickerCubeStateModel]
+
+
 class MoveModel(BaseModel):
     """Rubik's cube move representation."""
     
@@ -54,7 +76,7 @@ class MoveModel(BaseModel):
 class SolveRequest(BaseModel):
     """Request to solve a cube."""
     
-    cube_state: CubeStateModel
+    cube_state: CubeStateInput
     max_moves: Optional[int] = Field(default=20, ge=1, le=50)
 
 
@@ -71,7 +93,7 @@ class SolveResponse(BaseModel):
 class ValidateRequest(BaseModel):
     """Request to validate a cube state."""
     
-    cube_state: CubeStateModel
+    cube_state: CubeStateInput
 
 
 class ValidationError(BaseModel):
@@ -111,6 +133,7 @@ class ScanResponse(BaseModel):
     """Response from image scan."""
     
     cube_state: CubeStateModel
+    faces: Optional[dict[str, list[list[str]]]] = None
     metadata: ScanMetadata
     validation: ValidateResponse
 
@@ -141,8 +164,19 @@ class SolveRecordModel(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     is_dnf: bool = Field(default=False, description="Did Not Finish")
     is_dns: bool = Field(default=False, description="Did Not Start")
+    penalty_ms: int = Field(default=0, ge=0, description="Added penalty in milliseconds")
     notes: Optional[str] = Field(None, max_length=500)
     metadata: Optional[dict] = Field(None, description="Additional JSON metadata")
+    created_at: Optional[datetime] = None
+
+
+class TrainingAttemptModel(BaseModel):
+    id: Optional[int] = None
+    profile_id: int
+    algorithm: str = Field(..., min_length=1, max_length=200)
+    recognition_time_ms: int = Field(..., ge=0)
+    execution_time_ms: Optional[int] = Field(None, ge=0)
+    was_correct: bool = True
     created_at: Optional[datetime] = None
 
 
@@ -162,7 +196,7 @@ class StatisticsModel(BaseModel):
 class CoachingRequest(BaseModel):
     """Request for coaching/explanation."""
     
-    cube_state: CubeStateModel
+    cube_state: CubeStateInput
     solution_moves: List[MoveModel]
     focus: Optional[str] = Field(None, description="Focus area: 'cross', 'f2l', 'oll', 'pll', 'overall'")
 

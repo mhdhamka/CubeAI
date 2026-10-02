@@ -4,12 +4,13 @@ Handles cube state solving using Kociemba and IDA* algorithms.
 """
 
 import logging
-from typing import List, Tuple
-from datetime import datetime
 import time
+from typing import List
 
-from ..models import CubeStateModel, MoveModel, SolveResponse
+from ..models import CubeStateInput, MoveModel, SolveResponse
 from ..errors import SolveFailedError
+from .cube_state import cubies_to_engine_cube, to_cubie_state
+from solver import CubeSolver
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class SolverService:
         
     def solve(
         self,
-        cube_state: CubeStateModel,
+        cube_state: CubeStateInput,
         max_moves: int = 20,
         timeout_seconds: int = 10,
     ) -> SolveResponse:
@@ -46,18 +47,38 @@ class SolverService:
         Raises:
             SolveFailedError: If solving fails
         """
-        start_time = time.time()
-        
         try:
-            # Validate input
-            if not self._validate_cube_state(cube_state):
-                raise SolveFailedError("Invalid cube state for solving")
-            
-            # TODO Phase 2: Bridge to actual Python solver
-            # For now, return a placeholder solution
-            moves = self._get_placeholder_solution(cube_state)
-            
-            elapsed_ms = int((time.time() - start_time) * 1000)
+            cubie_state = to_cubie_state(cube_state)
+
+            if cubie_state.is_solved():
+                return SolveResponse(
+                    moves=[],
+                    num_moves=0,
+                    confidence=1.0,
+                    solving_time_ms=0,
+                    solver_used="none",
+                )
+
+            engine_cube = cubies_to_engine_cube(cubie_state)
+            solver = CubeSolver()
+            started_at = time.perf_counter()
+            solution = solver._solve_kociemba(engine_cube)
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+
+            if not solver.verify_solution(engine_cube, solution):
+                raise SolveFailedError(
+                    "The solver returned moves that failed cube-state verification"
+                )
+            if len(solution) > max_moves:
+                raise SolveFailedError(
+                    f"The verified solution has {len(solution)} moves, exceeding the {max_moves}-move limit",
+                    details={"num_moves": len(solution), "max_moves": max_moves},
+                )
+
+            moves = [
+                MoveModel(face=move.face, times=move.quarter_turns)
+                for move in solution
+            ]
             
             self.logger.info(
                 f"Solve completed",
@@ -71,9 +92,9 @@ class SolverService:
             return SolveResponse(
                 moves=moves,
                 num_moves=len(moves),
-                confidence=0.95,  # Kociemba guarantees optimal solution
+                confidence=1.0,
                 solving_time_ms=elapsed_ms,
-                solver_used="kociemba",
+                solver_used="kociemba-two-phase",
             )
             
         except SolveFailedError:
@@ -82,31 +103,6 @@ class SolverService:
             self.logger.exception("Solve operation failed", exc_info=e)
             raise SolveFailedError(f"Solving failed: {str(e)}")
     
-    def _validate_cube_state(self, cube_state: CubeStateModel) -> bool:
-        """Validate cube state before solving."""
-        # Basic validation - more thorough validation in ValidatorService
-        if not cube_state.corners or len(cube_state.corners) != 8:
-            return False
-        if not cube_state.edges or len(cube_state.edges) != 12:
-            return False
-        return True
-    
-    def _get_placeholder_solution(self, cube_state: CubeStateModel) -> List[MoveModel]:
-        """
-        Get placeholder solution (to be replaced with real solver in Phase 2).
-        
-        This is a simple placeholder that returns a valid move sequence.
-        The real implementation will use Kociemba or IDA*.
-        """
-        # Placeholder: Return a simple R U R' U' sequence
-        return [
-            MoveModel(face="R", times=1),
-            MoveModel(face="U", times=1),
-            MoveModel(face="R", times=3),  # R' = R3
-            MoveModel(face="U", times=3),  # U' = U3
-        ]
-
-
 # Global solver instance
 _solver_instance: SolverService | None = None
 

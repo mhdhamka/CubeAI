@@ -7,11 +7,12 @@ import logging
 from typing import List, Optional
 
 from ..models import (
+    CubeStateInput,
     CubeStateModel,
     ValidateResponse,
     ValidationError,
 )
-from ..errors import InvalidCubeStateError
+from .cube_state import to_api_cube_state, to_cubie_state
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class ValidatorService:
         """Initialize validator service."""
         self.logger = logger
         
-    def validate(self, cube_state: CubeStateModel) -> ValidateResponse:
+    def validate(self, cube_state: CubeStateInput) -> ValidateResponse:
         """
         Validate a cube state for physical possibility.
         
@@ -43,76 +44,22 @@ class ValidatorService:
             ValidateResponse with validation results
         """
         errors: List[ValidationError] = []
-        
-        # Validate corner permutation
-        if len(cube_state.corners) != 8:
-            errors.append(ValidationError(
-                field="corners",
-                error=f"Expected 8 corners, got {len(cube_state.corners)}"
-            ))
-        elif not self._validate_permutation(cube_state.corners, 8):
-            errors.append(ValidationError(
-                field="corners",
-                error="Corner permutation invalid (must be 0-7 in valid order)"
-            ))
-        
-        # Validate corner orientations
-        if len(cube_state.corner_orientations) != 8:
-            errors.append(ValidationError(
-                field="corner_orientations",
-                error=f"Expected 8 orientations, got {len(cube_state.corner_orientations)}"
-            ))
-        elif not all(0 <= o <= 2 for o in cube_state.corner_orientations):
-            errors.append(ValidationError(
-                field="corner_orientations",
-                error="Corner orientations must be 0, 1, or 2"
-            ))
-        elif sum(cube_state.corner_orientations) % 3 != 0:
-            errors.append(ValidationError(
-                field="corner_orientations",
-                error="Sum of corner orientations must be divisible by 3"
-            ))
-        
-        # Validate edge permutation
-        if len(cube_state.edges) != 12:
-            errors.append(ValidationError(
-                field="edges",
-                error=f"Expected 12 edges, got {len(cube_state.edges)}"
-            ))
-        elif not self._validate_permutation(cube_state.edges, 12):
-            errors.append(ValidationError(
-                field="edges",
-                error="Edge permutation invalid (must be 0-11 in valid order)"
-            ))
-        
-        # Validate edge orientations
-        if len(cube_state.edge_orientations) != 12:
-            errors.append(ValidationError(
-                field="edge_orientations",
-                error=f"Expected 12 orientations, got {len(cube_state.edge_orientations)}"
-            ))
-        elif not all(0 <= o <= 1 for o in cube_state.edge_orientations):
-            errors.append(ValidationError(
-                field="edge_orientations",
-                error="Edge orientations must be 0 or 1"
-            ))
-        elif sum(cube_state.edge_orientations) % 2 != 0:
-            errors.append(ValidationError(
-                field="edge_orientations",
-                error="Sum of edge orientations must be even"
-            ))
-        
-        # Validate permutation parity (corners and edges must have same parity)
-        if not errors and self._get_permutation_parity(cube_state.corners) != \
-           self._get_permutation_parity(cube_state.edges):
-            errors.append(ValidationError(
-                field="permutation",
-                error="Corner and edge permutation parity mismatch"
-            ))
-        
-        is_valid = len(errors) == 0
-        is_solved = is_valid and self._is_solved(cube_state)
-        scramble_distance = self._estimate_scramble_distance(cube_state) if is_valid else None
+        try:
+            cubies = to_cubie_state(cube_state)
+            api_state = to_api_cube_state(cubies)
+        except (TypeError, ValueError) as exc:
+            message = str(exc)
+            field = "permutation" if "parit" in message.lower() else "cube_state"
+            errors.append(ValidationError(field=field, error=message))
+            api_state = None
+
+        is_valid = not errors
+        is_solved = bool(cubies.is_solved()) if is_valid else False
+        scramble_distance = (
+            self._estimate_scramble_distance(api_state)
+            if is_valid and api_state is not None
+            else None
+        )
         
         self.logger.info(
             f"Cube validation: {'valid' if is_valid else 'invalid'}",

@@ -3,6 +3,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { CubeState, StickerCubeState } from './types';
 
 export interface ScanStartedEvent {
   type: 'scan_started';
@@ -15,20 +16,21 @@ export interface ProgressEvent {
   face: number;
   confidence: number;
   frames_processed: number;
+  requested_face?: string;
   timestamp: string;
 }
 
 export interface FaceDetectedEvent {
   type: 'face_detected';
-  face: number;
-  stickers: number[];
+  face: string;
+  stickers: string[];
   confidence: number;
   timestamp: string;
 }
 
 export interface RetryEvent {
   type: 'retry';
-  face: number;
+  face: string;
   reason: string;
   timestamp: string;
 }
@@ -36,14 +38,16 @@ export interface RetryEvent {
 export interface CompletedEvent {
   type: 'completed';
   session_id: string;
-  cube_state: {
-    corners: number[];
-    corner_orientations: number[];
-    edges: number[];
-    edge_orientations: number[];
-  };
+  cube_state: CubeState;
   confidence: number;
   timestamp: string;
+  faces?: StickerCubeState['faces'];
+  validation?: {
+    valid: boolean;
+    errors: { field: string; error: string }[];
+    is_solved: boolean;
+    scramble_distance: number | null;
+  };
 }
 
 export interface CancelEvent {
@@ -76,20 +80,22 @@ export interface UseScanSessionState {
   currentFace: number;
   confidence: number;
   framesProcessed: number;
+  requestedFace: string | null;
+  faces: StickerCubeState['faces'] | null;
   error: string | null;
-  cubeState: any | null;
+  cubeState: CubeState | null;
 }
 
 export interface UseScanSessionActions {
   sendFrame: (frameData: ArrayBuffer) => void;
   cancel: () => void;
-  retry: (faceNumber: number) => void;
+  retry: (faceName: string) => void;
   reset: () => void;
 }
 
 export type UseScanSession = UseScanSessionState & UseScanSessionActions;
 
-export function useScanSession(wsUrl?: string): UseScanSession {
+export function useScanSession(wsUrl?: string, enabled = true): UseScanSession {
   const url =
     wsUrl ||
     (typeof window !== 'undefined'
@@ -105,10 +111,12 @@ export function useScanSession(wsUrl?: string): UseScanSession {
   const [confidence, setConfidence] = useState(0);
   const [framesProcessed, setFramesProcessed] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [cubeState, setCubeState] = useState<any | null>(null);
+  const [requestedFace, setRequestedFace] = useState<string | null>(null);
+  const [faces, setFaces] = useState<StickerCubeState['faces'] | null>(null);
+  const [cubeState, setCubeState] = useState<CubeState | null>(null);
 
   useEffect(() => {
-    if (!url) return;
+    if (!url || !enabled) return;
     const ws = new WebSocket(url);
 
     ws.onopen = () => {
@@ -124,19 +132,22 @@ export function useScanSession(wsUrl?: string): UseScanSession {
           case 'scan_started':
             setSessionId((message as ScanStartedEvent).session_id);
             setFacesDetected(0);
+            setError(null);
             break;
           case 'progress':
             setCurrentFace((message as ProgressEvent).face);
             setConfidence((message as ProgressEvent).confidence);
             setFramesProcessed((message as ProgressEvent).frames_processed);
+            setRequestedFace((message as ProgressEvent).requested_face ?? null);
+            setError(null);
             break;
           case 'face_detected':
             setFacesDetected((prev) => prev + 1);
-            setCurrentFace((message as FaceDetectedEvent).face);
             setConfidence((message as FaceDetectedEvent).confidence);
             break;
           case 'completed':
             setCubeState((message as CompletedEvent).cube_state);
+            setFaces((message as CompletedEvent).faces ?? null);
             setIsScanning(false);
             break;
           case 'error':
@@ -148,6 +159,7 @@ export function useScanSession(wsUrl?: string): UseScanSession {
             setIsScanning(false);
             break;
           case 'retry':
+            setError((message as RetryEvent).reason);
             break;
         }
       } catch (err) {
@@ -172,11 +184,11 @@ export function useScanSession(wsUrl?: string): UseScanSession {
         wsRef.current.close();
       }
     };
-  }, [url]);
+  }, [url, enabled]);
 
   const sendFrame = useCallback((frameData: ArrayBuffer) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'frame', data: frameData }));
+      wsRef.current.send(frameData);
     }
   }, []);
 
@@ -186,9 +198,9 @@ export function useScanSession(wsUrl?: string): UseScanSession {
     }
   }, []);
 
-  const retry = useCallback((faceNumber: number) => {
+  const retry = useCallback((faceName: string) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'retry', face: faceNumber }));
+      wsRef.current.send(JSON.stringify({ type: 'retry', face: faceName }));
     }
   }, []);
 
@@ -199,8 +211,10 @@ export function useScanSession(wsUrl?: string): UseScanSession {
     setCurrentFace(0);
     setConfidence(0);
     setFramesProcessed(0);
+    setRequestedFace(null);
     setError(null);
     setCubeState(null);
+    setFaces(null);
   }, []);
 
   return {
@@ -211,8 +225,10 @@ export function useScanSession(wsUrl?: string): UseScanSession {
     currentFace,
     confidence,
     framesProcessed,
+    requestedFace,
     error,
     cubeState,
+    faces,
     sendFrame,
     cancel,
     retry,

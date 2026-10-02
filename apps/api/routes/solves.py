@@ -16,6 +16,22 @@ router = APIRouter(prefix="/api", tags=["solves"])
 
 
 @router.get(
+    "/solves",
+    response_model=list[SolveRecordModel],
+    status_code=status.HTTP_200_OK,
+    summary="List solve records for a profile",
+)
+async def get_solves(
+    profile_id: int = Query(..., ge=1),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> list[SolveRecordModel]:
+    solves = SolveService.get_profile_solves(db, profile_id, limit, offset)
+    return [solve_to_model(solve) for solve in solves]
+
+
+@router.get(
     "/profiles/{profile_id}/solves",
     response_model=list[SolveRecordModel],
     status_code=status.HTTP_200_OK,

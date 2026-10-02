@@ -38,7 +38,7 @@ export function ScanSessionStatus({ session }: { session: UseScanSession }) {
           Cancel
         </button>
         <button
-          onClick={() => session.retry(session.currentFace)}
+          onClick={() => session.retry(session.requestedFace ?? "U")}
           disabled={!session.isScanning}
           style={{ marginLeft: '8px' }}
         >

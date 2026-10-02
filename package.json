@@ -17,10 +17,14 @@
     "test:run": "vitest run",
     "web:test": "vitest run tests/web-dashboard.test.tsx",
     "web:dev": "next dev apps/web",
+    "web:e2e": "next dev apps/web --hostname 127.0.0.1 --port 3010",
     "web:build": "next build apps/web",
     "web:start": "next start apps/web",
     "api:dev": "python -m uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8000",
+    "api:e2e": "python -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8010",
     "api:test": "python -m pytest apps/api/tests",
+    "api:migrate": "python -m alembic upgrade head",
+    "test:e2e": "playwright test",
     "api:install": "python -m pip install -r requirements.txt -r requirements-test.txt"
   },
   "keywords": [],
@@ -28,6 +32,7 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

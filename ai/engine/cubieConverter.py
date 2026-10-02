@@ -283,22 +283,16 @@ def cubestate_to_cubiestate(cube: "CubeState") -> "CubieState":
     if not _CORNER_LOOKUP and VAL_CORNER_COLORS is not None:
         _CORNER_LOOKUP, _EDGE_LOOKUP = _build_lookups()
 
-    # Optional deep topological validation using CubeValidator (handles objects and dicts)
-    validator = _CubeValidator()
-    if hasattr(validator, "validate"):
-        validation_res = validator.validate(cube)
-        is_valid = True
-        errors = []
-        
-        if isinstance(validation_res, dict):
-            is_valid = validation_res.get("valid", True)
-            errors = validation_res.get("errors", [])
-        else:
-            is_valid = getattr(validation_res, "valid", True)
-            errors = getattr(validation_res, "errors", [])
+    if not cube.is_complete():
+        raise ValueError(
+            f"Cannot convert incomplete CubeState: {cube.unknown_count()} unknown stickers."
+        )
 
-        if not is_valid:
-            raise ValueError(f"Invalid CubeState topology: {errors}")
+    sticker_validation = cube.validate()
+    if not sticker_validation.valid:
+        raise ValueError(
+            f"Invalid CubeState colors: {sticker_validation.errors}"
+        )
 
     corners: list[Any] = []
     for slot_idx, facelets in enumerate(CORNER_FACELETS):
@@ -330,7 +324,13 @@ def cubestate_to_cubiestate(cube: "CubeState") -> "CubieState":
         orientation = _edge_orientation(colors, facelets)
         edges.append(_EdgeCubie(piece=piece_idx, orientation=orientation))
 
-    return _CubieState(corners=corners, edges=edges)
+    cubie_state = _CubieState(corners=corners, edges=edges)
+    cubie_validation = cubie_state.validate()
+    if not cubie_validation["valid"]:
+        raise ValueError(
+            f"Invalid CubeState topology: {cubie_validation['errors']}"
+        )
+    return cubie_state
 
 
 # ===========================================================================

@@ -15,6 +15,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/profiles", tags=["profiles"])
 
 
+@router.post("/guest", response_model=ProfileModel, status_code=status.HTTP_200_OK)
+async def get_or_create_guest_profile(
+    db: Session = Depends(get_db),
+) -> ProfileModel:
+    """Get the stable local profile used by the unauthenticated web app."""
+    profile = ProfileService.get_or_create_guest_profile(db)
+    return profile_to_model(profile)
+
+
 @router.get(
     "/{profile_id}",
     response_model=ProfileModel,

@@ -41,11 +41,18 @@ export DATABASE_URL=sqlite:///./cubeai.db
 npm run api:dev
 ```
 
-The API is at <http://localhost:8000>; interactive docs are at <http://localhost:8000/docs>.
+The API is at <http://localhost:8000>; interactive docs are at <http://localhost:8000/docs>. Alembic migrations are applied when the API starts.
 
 ## Docker
 
-Docker Compose configuration is provided, but its API service still has an outdated command and bind mount. Use the local steps above until that Compose wiring is corrected. See the [Docker status](docker/Docker%20STATUS.md).
+Docker Compose runs PostgreSQL, FastAPI, and the Next.js development server:
+
+```powershell
+Copy-Item .env.example .env.docker
+docker compose --env-file .env.docker up --build
+```
+
+Open <http://localhost:3000>; API docs are at <http://localhost:8000/docs>. Replace example credentials before using any non-local environment. See [Docker Development](docker/docker.md).
 
 ## Next steps
 

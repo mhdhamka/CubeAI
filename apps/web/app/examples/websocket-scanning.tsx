@@ -139,7 +139,7 @@ export function RealtimeScannerExample() {
         </button>
 
         <button
-          onClick={() => session.retry(session.currentFace)}
+          onClick={() => session.retry(session.requestedFace ?? "U")}
           disabled={!session.isScanning}
           style={{
             padding: '8px 16px',

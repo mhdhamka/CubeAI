@@ -3,6 +3,9 @@ Database connection management and session handling.
 """
 
 from typing import Generator
+from pathlib import Path
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 
@@ -44,10 +47,11 @@ def get_db() -> Generator[Session, None, None]:
 
 def init_db():
     """
-    Initialize database schema.
-    Creates all tables defined in Base.metadata.
+    Apply all versioned database migrations.
     """
-    Base.metadata.create_all(bind=engine)
+    repository_root = Path(__file__).resolve().parents[3]
+    config = Config(str(repository_root / "alembic.ini"))
+    command.upgrade(config, "head")
 
 
 def drop_db():

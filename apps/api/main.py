@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from .config import settings
 from .errors import APIException, ErrorDetail, ErrorCode
-from .routes import health, solve, validate, scan, coaching, profiles, solves, statistics, ws
+from .routes import health, solve, validate, scan, coaching, profiles, solves, statistics, ws, training
 from .db import init_db
 
 # Configure logging
@@ -105,6 +105,7 @@ app.include_router(profiles.router)
 app.include_router(solves.router)
 app.include_router(statistics.router)
 app.include_router(ws.router)
+app.include_router(training.router)
 
 
 @app.get("/", tags=["root"])

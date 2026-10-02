@@ -67,7 +67,7 @@ class StatisticsService:
                 average_overall_ms=None,
             )
         
-        times = [solve.time_ms for solve in solves]
+        times = [solve.time_ms + (solve.penalty_ms or 0) for solve in solves]
         
         # Calculate statistics
         total_solves = len(solves)
@@ -75,19 +75,25 @@ class StatisticsService:
         worst_time = max(times)
         
         # Ao5 - Average of 5 (best of last 5 averages)
-        ao5 = None
-        if total_solves >= 5:
-            ao5 = mean(times[:5])
+        ao5 = StatisticsService._average_of_latest(
+            times,
+            5,
+            trim_extremes=True,
+        )
         
         # Ao12 - Average of 12
-        ao12 = None
-        if total_solves >= 12:
-            ao12 = mean(times[:12])
+        ao12 = StatisticsService._average_of_latest(
+            times,
+            12,
+            trim_extremes=True,
+        )
         
         # Ao100 - Average of 100
-        ao100 = None
-        if total_solves >= 100:
-            ao100 = mean(times[:100])
+        ao100 = StatisticsService._average_of_latest(
+            times,
+            100,
+            trim_extremes=False,
+        )
         
         # Overall average
         overall_avg = mean(times)
@@ -112,6 +118,20 @@ class StatisticsService:
             average_ao100_ms=ao100,
             average_overall_ms=overall_avg,
         )
+
+    @staticmethod
+    def _average_of_latest(
+        times: list[int],
+        count: int,
+        *,
+        trim_extremes: bool,
+    ) -> float | None:
+        if len(times) < count:
+            return None
+        window = sorted(times[:count])
+        if trim_extremes:
+            window = window[1:-1]
+        return mean(window)
     
     @staticmethod
     def get_recent_improvement(db: Session, profile_id: int) -> dict:

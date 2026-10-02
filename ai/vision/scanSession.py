@@ -486,6 +486,19 @@ class CubeScanSession:
         )
 
 
+    def retry_face(
+        self,
+        face_name: str,
+    ) -> bool:
+        """Remove a scanned face so it can be captured again."""
+        if face_name not in self._faces:
+            return False
+        del self._faces[face_name]
+        if face_name in self._history:
+            self._history.remove(face_name)
+        return True
+
+
     def reset(
         self,
     ) -> None:

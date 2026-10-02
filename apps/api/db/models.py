@@ -46,6 +46,7 @@ class Profile(Base):
     user = relationship("User", back_populates="profiles")
     solve_records = relationship("SolveRecord", back_populates="profile")
     scan_sessions = relationship("ScanSession", back_populates="profile")
+    training_attempts = relationship("TrainingAttempt", back_populates="profile")
 
     def __repr__(self):
         return f"<Profile(id={self.id}, name={self.name})>"
@@ -65,6 +66,7 @@ class SolveRecord(Base):
     confidence = Column(Float, default=1.0)  # Solver confidence in solution (0.0-1.0)
     is_dnf = Column(Boolean, default=False)  # Did Not Finish
     is_dns = Column(Boolean, default=False)  # Did Not Start
+    penalty_ms = Column(Integer, default=0, nullable=False)
     notes = Column(String(500), nullable=True)  # User notes
     metadata_json = Column("metadata", JSON, nullable=True)  # Additional data
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
@@ -96,6 +98,21 @@ class ScanSession(Base):
 
     def __repr__(self):
         return f"<ScanSession(id={self.id}, status={self.status})>"
+
+
+class TrainingAttempt(Base):
+    """Persisted algorithm-recognition and execution practice."""
+    __tablename__ = "training_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    profile_id = Column(Integer, ForeignKey("profiles.id"), nullable=False, index=True)
+    algorithm = Column(String(200), nullable=False)
+    recognition_time_ms = Column(Integer, nullable=False)
+    execution_time_ms = Column(Integer, nullable=True)
+    was_correct = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    profile = relationship("Profile", back_populates="training_attempts")
 
 
 class CoachingRecord(Base):

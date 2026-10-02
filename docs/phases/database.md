@@ -8,6 +8,6 @@ The API uses SQLAlchemy models and services for users, profiles, solve records, 
 - `POST /api/solves` and `GET`, `DELETE /api/solves/{id}`
 - `GET /api/profiles/{id}/solves` for paginated history
 
-The API initializes tables on startup with SQLAlchemy metadata. The repository has SQL schema and migration files, but a migration runner is not wired into application startup.
+Alembic applies versioned migrations on API startup. The initial migration creates tables from the SQLAlchemy models, including solve penalties and training attempts. Compose no longer imports the legacy UUID-based SQL bootstrap file, which did not match the API's ORM model.
 
-For tests, `npm run api:test` uses an in-memory SQLite database for a persistence regression check. See [API Reference](../api.md).
+For tests, `npm run api:test` covers profile, solve, penalty, and training persistence with SQLite. Run `npm run api:migrate` to apply migrations manually. See [API Reference](../api.md).

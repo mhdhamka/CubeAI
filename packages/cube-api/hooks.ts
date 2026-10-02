@@ -94,7 +94,7 @@ export function useValidate(client?: CubeAIClient): UseAPI<ValidateResponse> {
  */
 export function useScanImage(client?: CubeAIClient): UseAPI<ScanResponse> {
   const apiClient = client || new CubeAIClient();
-  return useAPIOperation((file: File) => apiClient.scanImage(file));
+  return useAPIOperation((files: File | File[]) => apiClient.scanImage(files));
 }
 
 /**
@@ -160,7 +160,7 @@ export function useScanToSolveWorkflow(client?: CubeAIClient) {
   const solve = useSolve(apiClient);
 
   const executeWorkflow = useCallback(
-    async (imageFile: File, maxMoves?: number) => {
+    async (imageFile: File | File[], maxMoves?: number) => {
       // Step 1: Scan image to get cube state
       const scanResult = await scanImage.execute(imageFile);
       

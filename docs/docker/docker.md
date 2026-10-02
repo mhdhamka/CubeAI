@@ -24,8 +24,15 @@ docker compose down
 
 To also delete database data, use `docker compose down -v`.
 
-## Current blocker
+The API uses Alembic migrations at startup. Compose mounts API and vision source for local reloading; the web service uses a development image with Tailwind dependencies installed.
 
-The checked-in Compose API service overrides the container's package entrypoint with `main:app` and mounts `apps/api` over `/app`. The API is now a package at `apps.api.main`, so this override prevents the service from starting as configured. Use the local API instructions in [Getting Started](../getting-started.md) until the Compose command and bind mount are aligned.
+Run the same checks as CI with:
+
+```bash
+npm run api:test
+npm run test:run
+npm run web:build
+npm run test:e2e
+```
 
 The example database password is for local development only. Do not use it in a deployed environment.

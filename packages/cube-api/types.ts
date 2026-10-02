@@ -10,13 +10,19 @@ export interface CubeState {
   edge_orientations: number[];
 }
 
+export interface StickerCubeState {
+  faces: Record<'U' | 'R' | 'F' | 'D' | 'L' | 'B', string[][]>;
+}
+
+export type CubeStateInput = CubeState | StickerCubeState;
+
 export interface Move {
   face: 'U' | 'D' | 'F' | 'B' | 'L' | 'R';
   times: 1 | 2 | 3;
 }
 
 export interface SolveRequest {
-  cube_state: CubeState;
+  cube_state: CubeStateInput;
   max_moves?: number;
 }
 
@@ -29,7 +35,7 @@ export interface SolveResponse {
 }
 
 export interface ValidateRequest {
-  cube_state: CubeState;
+  cube_state: CubeStateInput;
 }
 
 export interface ValidationError {
@@ -56,6 +62,7 @@ export interface ErrorDetail {
   message: string;
   details?: Record<string, any>;
   timestamp?: string;
+  detail?: string | { loc?: (string | number)[]; msg?: string }[];
 }
 
 // Scan types (Phase 4+)
@@ -68,6 +75,7 @@ export interface ScanMetadata {
 
 export interface ScanResponse {
   cube_state: CubeState;
+  faces?: StickerCubeState['faces'];
   metadata: ScanMetadata;
   validation: ValidateResponse;
 }
@@ -95,8 +103,19 @@ export interface SolveRecord {
   confidence?: number;
   is_dnf?: boolean;
   is_dns?: boolean;
+  penalty_ms?: number;
   notes?: string;
   metadata?: Record<string, any>;
+  created_at?: string;
+}
+
+export interface TrainingAttempt {
+  id?: number;
+  profile_id: number;
+  algorithm: string;
+  recognition_time_ms: number;
+  execution_time_ms?: number;
+  was_correct?: boolean;
   created_at?: string;
 }
 
@@ -113,7 +132,7 @@ export interface Statistics {
 
 // Coaching types (Phase 6+)
 export interface CoachingRequest {
-  cube_state: CubeState;
+  cube_state: CubeStateInput;
   solution_moves: Move[];
   focus?: 'cross' | 'f2l' | 'oll' | 'pll' | 'overall';
 }

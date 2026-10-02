@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.next-e2e/
 dist/
 build/
 .env
@@ -12,6 +13,11 @@ __pycache__/
 venv/
 
 coverage/
+test-results/
+playwright-report/
+
+# Local SQLite databases
+*.db
 
 .DS_Store
 Thumbs.db

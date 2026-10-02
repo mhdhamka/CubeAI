@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     # Coaching
     COACHING_PROVIDER: str = "deterministic"  # "deterministic" or "external"
     COACHING_EXTERNAL_URL: Optional[str] = None
+    COACHING_EXTERNAL_API_KEY: Optional[str] = None
     
     # Logging
     LOG_LEVEL: str = "INFO"

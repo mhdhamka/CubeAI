@@ -1,6 +1,6 @@
 """Database module exports."""
 
-from .models import Base, User, Profile, SolveRecord, ScanSession, CoachingRecord
+from .models import Base, User, Profile, SolveRecord, ScanSession, TrainingAttempt, CoachingRecord
 from .database import engine, SessionLocal, get_db, init_db, drop_db
 
 __all__ = [
@@ -9,6 +9,7 @@ __all__ = [
     "Profile",
     "SolveRecord",
     "ScanSession",
+    "TrainingAttempt",
     "CoachingRecord",
     "engine",
     "SessionLocal",
