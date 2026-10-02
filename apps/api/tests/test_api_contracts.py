@@ -239,15 +239,17 @@ def test_six_uploaded_faces_build_validate_and_solve(client, monkeypatch):
     Image.new("RGB", (120, 120), "white").save(image_buffer, format="PNG")
     image_data = image_buffer.getvalue()
     
-    # Updated multi-file payload structure
-    files = {
-        "files": [
-            (f"{face}.png", image_data, "image/png")
-            for face in faces
-        ]
-    }
+    # Send as JSON body payload conforming to the Pydantic model definition
+    payload_files = [
+        {
+            "filename": f"{face}.png",
+            "content": image_data.hex(),
+            "content_type": "image/png"
+        }
+        for face in faces
+    ]
 
-    scan_response = client.post("/api/scan/image", files=files)
+    scan_response = client.post("/api/scan/image", json={"files": payload_files})
 
     assert scan_response.status_code == 200, scan_response.text
     scan_body = scan_response.json()
