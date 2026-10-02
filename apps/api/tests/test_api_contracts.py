@@ -238,10 +238,14 @@ def test_six_uploaded_faces_build_validate_and_solve(client, monkeypatch):
     image_buffer = io.BytesIO()
     Image.new("RGB", (120, 120), "white").save(image_buffer, format="PNG")
     image_data = image_buffer.getvalue()
-    files = [
-        ("files", (f"{face}.png", image_data, "image/png"))
-        for face in faces
-    ]
+    
+    # Updated multi-file payload structure
+    files = {
+        "files": [
+            (f"{face}.png", image_data, "image/png")
+            for face in faces
+        ]
+    }
 
     scan_response = client.post("/api/scan/image", files=files)
 
