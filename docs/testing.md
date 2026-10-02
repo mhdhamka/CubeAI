@@ -1,57 +1,40 @@
-# Testing Strategy
+# Testing
 
-Because cube manipulation logic is highly state-dependent, testing is a critical part of the project.
+Run commands from the repository root.
 
-The Cube Core Engine should be tested independently from the UI.
+## TypeScript tests
 
-### Core Test Examples
-
-* A move followed by its inverse restores the original state.
-* Four quarter turns restore the original state.
-* Scrambled cubes contain valid piece configurations.
-* Invalid sticker configurations are rejected.
-* Move sequences produce deterministic results.
-* Serialization preserves the cube state.
-
-Example concept:
-
-```text
-R + R' = Solved State
-
-R R R R = Solved State
-
-Algorithm + Inverse Algorithm = Original State
-
+```bash
+npm ci
+npm run test:run
 ```
 
-Testing categories include:
+This runs the cube, cubie, notation, renderer, solver, and dashboard tests. To run only the dashboard tests:
 
-* **Unit Tests** — Individual moves, parsers, validators, and utilities
-* **Integration Tests** — Communication between packages and services
-* **End-to-End Tests** — Complete user workflows
-* **Visual Testing** — 3D rendering and animation behavior
-* **Validation Testing** — Detection of impossible cube states
-
----
-
-### Test Structure & Fixtures
-
-The test suite is organized to validate everything from base components to computer vision pipelines using real sample assets:
-
-```text
-tests/
-├── cube.test.ts          # Core state and move validation tests
-├── cubie.test.ts         # Individual piece rotation logic
-├── notation.test.ts      # Move notation parser tests
-├── renderer.test.ts      # 3D abstraction and rendering tests
-└── solver.test.ts        # Solving algorithm integration tests
-
-# Vision & Scanner Test Assets
-├── cube.jpg              # Sample physical cube photo for scanner tests
-└── cube-color.jpg        # Sample sticker color-detection fixture
-
+```bash
+npm run web:test
 ```
 
----
+## API tests
 
-> **Quick Navigation:** Explore the test suite in [tests](../tests/) or view sample assets in [test-images](../test-images/)
+Install Python dependencies if needed, then run:
+
+```bash
+python -m pip install -r requirements.txt -r requirements-test.txt
+npm run api:test
+```
+
+The API tests cover health, validation, solve response shape, malformed requests, and SQLite persistence. They do not require PostgreSQL.
+
+## Build and syntax checks
+
+```bash
+npm run web:build
+python -m compileall apps/api ai
+```
+
+CI runs the TypeScript suite, API tests, Python compilation, and the Next.js production build.
+
+## Current gaps
+
+There is no Playwright end-to-end suite yet. Browser automation was not run as part of these checks. Image-to-solution playback, real camera processing, and WebSocket vision behavior still need integration coverage once those flows use the real services.

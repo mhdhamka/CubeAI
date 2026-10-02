@@ -1,45 +1,17 @@
+# CubeAI Overview
 
-## Overview
+CubeAI is an experimental Rubik's Cube workspace built around reusable cube logic. It combines a Next.js interface, TypeScript cube packages, a FastAPI service, and Python vision/coaching code.
 
-**CubeAI** is an experimental, full-stack platform exploring how modern software engineering, computer vision, artificial intelligence, and interactive 3D technologies can be combined to create a more intelligent Rubik's Cube experience.
+## Main parts
 
-Most existing cube solvers focus on a single interaction:
+- `apps/web`: dashboard, timer, manual sticker editor, and 3D cube view.
+- `apps/api`: REST and WebSocket endpoints, service layer, and database access.
+- `packages/`: reusable cube state, notation, solver, renderer, and API client code.
+- `ai/`: Python cube engine, vision pipeline, and deterministic coaching logic.
+- `database/`: SQL schema and migrations.
 
-> **Enter cube state → Receive moves → Solve cube**
+## Current status
 
-CubeAI expands this workflow into a complete learning and analysis ecosystem:
+The reusable cube packages and API services are present, and the dashboard runs locally. Some product flows are still prototypes: the dashboard does not yet use the API for solving or image upload; the API vision service returns a placeholder solved state; and the WebSocket scanner simulates detections.
 
-> **Scan → Validate → Understand → Solve → Visualize → Practice → Analyze → Improve**
-
-The platform is built around a fundamental architectural principle: **the Rubik's Cube logic should not depend on the user interface, camera system, solver, or AI services**.
-
-At the center of the project is a standalone **Cube Core Engine** responsible for representing and manipulating cube states. Other systems—including the solver, 3D renderer, computer vision scanner, and AI coach—interact with the same underlying domain model.
-
-This approach allows CubeAI to grow from a web application into a reusable Rubik's Cube technology ecosystem.
-
----
-
-## Project Vision
-
-CubeAI aims to answer a simple question:
-
-> **What would a modern Rubik's Cube platform look like if solving, visualization, computer vision, analytics, and AI coaching were designed as one integrated system?**
-
-The long-term goal is to support multiple types of users:
-
-| User                      | CubeAI Experience                                                           |
-| ------------------------- | --------------------------------------------------------------------------- |
-| **Beginner**           | Learn how the cube works through guided tutorials and visual explanations   |
-| **Learner**            | Practice algorithms, understand notation, and receive step-by-step guidance |
-| **Speedcuber**          | Track solve times, session statistics, averages, and performance trends     |
-| **Physical Cube User** | Scan a real cube using a camera instead of manually entering sticker colors |
-| **Advanced Solver**    | Analyze move sequences, algorithms, and alternative solving paths           |
-| **Developer**          | Reuse the standalone cube engine and related packages in other applications |
-
----
-
-# System Architecture
-
-CubeAI follows a modular architecture where the core cube domain is isolated from presentation and external services.
-
-> **Explore Further:** For detailed breakdowns of system flows, container structures, and component design, check out the [Architecture Documentation Directory](./architecture.md).
+Start with [Getting Started](getting-started.md), then see [Features](features.md) and [Architecture](architecture.md).

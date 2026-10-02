@@ -25,16 +25,15 @@ FastAPI service for the CubeAI platform. Provides REST and WebSocket endpoints f
 
 ### Setup
 
-1. **Create virtual environment**:
+1. **Create a virtual environment from the repository root**:
    ```bash
-   cd apps/api
    python -m venv venv
    source venv/bin/activate  # or `venv\Scripts\activate` on Windows
    ```
 
 2. **Install dependencies**:
    ```bash
-   pip install -r requirements.txt
+   python -m pip install -r requirements.txt -r requirements-test.txt
    ```
 
 3. **Configure environment**:
@@ -45,10 +44,15 @@ FastAPI service for the CubeAI platform. Provides REST and WebSocket endpoints f
 
 4. **Run development server**:
    ```bash
-   python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+   python -m uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8000
    ```
 
-5. **Access API**:
+5. **Run API contract tests**:
+   ```bash
+   npm run api:test
+   ```
+
+6. **Access API**:
    - Interactive docs: http://localhost:8000/docs
    - ReDoc: http://localhost:8000/redoc
    - Health: http://localhost:8000/api/health

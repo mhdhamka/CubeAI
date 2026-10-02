@@ -1,6 +1,31 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
 
-:root { --ink: #17201d; --muted: #718078; --paper: #eef1ea; --line: #cbd4cc; --acid: #d7f15a; --orange: #f26d3d; }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--paper); color: var(--ink); font-family: 'Space Grotesk', sans-serif; }
-button, input { font: inherit; }
+@theme {
+	--color-ink: #17201d;
+	--color-muted: #718078;
+	--color-paper: #eef1ea;
+	--color-line: #cbd4cc;
+	--color-acid: #d7f15a;
+	--color-orange: #f26d3d;
+	--font-display: "Space Grotesk", sans-serif;
+	--font-mono: "DM Mono", monospace;
+}
+
+@layer base {
+	* {
+		box-sizing: border-box;
+	}
+
+	body {
+		margin: 0;
+		background: var(--color-paper);
+		color: var(--color-ink);
+		font-family: var(--font-display);
+	}
+
+	button,
+	input {
+		font: inherit;
+	}
+}

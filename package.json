@@ -15,23 +15,30 @@
   "scripts": {
     "test": "vitest",
     "test:run": "vitest run",
+    "web:test": "vitest run tests/web-dashboard.test.tsx",
     "web:dev": "next dev apps/web",
     "web:build": "next build apps/web",
     "web:start": "next start apps/web",
-    "api:dev": "cd apps/api && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
-    "api:install": "cd apps/api && pip install -r requirements.txt"
+    "api:dev": "python -m uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8000",
+    "api:test": "python -m pytest apps/api/tests",
+    "api:install": "python -m pip install -r requirements.txt -r requirements-test.txt"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@types/three": "^0.185.4",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.3",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.23.11",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

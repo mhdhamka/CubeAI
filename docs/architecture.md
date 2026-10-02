@@ -1,255 +1,43 @@
+# Architecture
 
-# System Architecture
+CubeAI is a monorepo. The web app, API, reusable TypeScript packages, Python services, and database schema live in separate top-level folders.
 
-CubeAI follows a modular architecture where the core cube domain is isolated from presentation and external services.
-
-```text
-
-                         ┌───────────────────────────┐
-                         │          CubeAI           │
-                         │  Rubik's Cube Platform    │
-                         └─────────────┬─────────────┘
-                                       │
-                                       ▼
-                         ┌───────────────────────────┐
-                         │       Next.js Web         │
-                         │                           │
-                         │  React / TypeScript       │
-                         │  3D Renderer              │
-                         │  Scanner UI               │
-                         │  Solver UI                │
-                         │  Dashboard                │
-                         └─────────────┬─────────────┘
-                                       │
-                              REST / WebSocket
-                                       │
-                                       ▼
-                         ┌───────────────────────────┐
-                         │      FastAPI API          │
-                         │      Python 3.11          │
-                         │                           │
-                         │  /solve                   │
-                         │  /validate                │
-                         │  /scan/image              │
-                         │  /solves                  │
-                         │  /health                  │
-                         │  WebSocket Scan Sessions  │
-                         └──────┬───────────┬────────┘
-                                │           │
-                    ┌───────────┘           └──────────────┐
-                    ▼                                      ▼
-          ┌───────────────────┐                  ┌───────────────────┐
-          │   Python AI Layer │                  │    PostgreSQL      │
-          │                   │                  │                   │
-          │ Vision Scanner    │                  │ Profiles          │
-          │ Color Detection   │                  │ Solves            │
-          │ CubeStateBuilder  │                  │ Sessions          │
-          │ CubeValidator     │                  │ Statistics        │
-          │ Solver Bridge     │                  │ Training Data     │
-          │ AI Coach          │                  │                   │
-          └─────────┬─────────┘                  └───────────────────┘
-                    │
-                    ▼
-          ┌───────────────────┐
-          │    Cube Core      │
-          │                   │
-          │ CubeState         │
-          │ Move Engine       │
-          │ Validation        │
-          │ Notation          │
-          │ Scrambler         │
-          └───────────────────┘
+```mermaid
+flowchart LR
+  Web[Next.js web app] --> Client[Typed API client]
+  Client --> API[FastAPI]
+  API --> Services[API services]
+  Services --> Vision[Python vision]
+  Services --> Engine[Python cube engine]
+  Services --> Coach[Coaching service]
+  Services --> DB[(PostgreSQL / SQLite)]
+  Web --> TSCore[TypeScript cube packages]
+  TSCore --> Renderer[Three.js renderer]
 ```
 
-# Containerized Architecture
+The diagram shows intended boundaries, not a fully connected user flow. The dashboard currently uses local state for its main interactions; some API services also contain placeholder behavior. See [Features](features.md) for those limits.
 
-The development and deployment environment is organized into three primary services:
-```text
-┌──────────────────────────────────────────────────────────────┐
-│                        Docker Compose                        │
-│                                                              │
-│  ┌────────────────┐       ┌────────────────┐                 │
-│  │ cube-ai-web    │       │ cube-ai-api    │                 │
-│  │                │       │                │                 │
-│  │ Next.js        │──────►│ FastAPI        │                 │
-│  │ Node.js 18     │ REST  │ Python 3.11    │                 │
-│  │ Port 3000      │ WS    │ Port 8000      │                 │
-│  └────────────────┘       └───────┬────────┘                 │
-│                                   │                          │
-│                                   ▼                          │
-│                          ┌────────────────┐                  │
-│                          │ cube-ai-       │                  │
-│                          │ postgres       │                  │
-│                          │                │                  │
-│                          │ PostgreSQL 14  │                  │
-│                          │ Port 5432      │                  │
-│                          └───────┬────────┘                  │
-│                                  │                           │
-│                           postgres-data                      │
-│                             persistent                       │
-└──────────────────────────────────────────────────────────────┘
-```
-
----
-
-
-## Core Data Flow
-
-A typical CubeAI solving session may follow this workflow:
+## Repository map
 
 ```text
-Physical Rubik's Cube
-        │
-        ▼
-  Camera / Scanner
-        │
-        ▼
-Color & Sticker Detection
-        │
-        ▼
-  Cube State Reconstruction
-        │
-        ▼
-  Cube State Validation
-        │
-        ├── Invalid → Request correction
-        │
-        ▼
-  Solver Engine
-        │
-        ▼
-  Solution Sequence
-        │
-        ├───────────────────┐
-        ▼                   ▼
-  3D Solution Playback    AI Coach
-        │                   │
-        ▼                   ▼
-User Visualization      Explanation & Feedback
-        │                   │
-        └─────────┬─────────┘
-                  ▼
-              PostgreSQL
-                  │
-                  ▼
-          Progress & Insights
-```
----
-
-# Architecture Principles
-
-CubeAI is being designed around several engineering principles.
-
-### 1. Core Logic Is Framework Independent
-
-The cube engine should not depend directly on:
-
-* React
-* Next.js
-* Three.js
-* FastAPI
-* OpenCV
-
-This allows the domain logic to be tested and reused independently.
-
-### 2. The Cube State Is the Source of Truth
-
-Every system works with a validated representation of the cube.
-
-```text
-Camera ──────┐
-Manual Input ├──► CubeState ◄── Solver
-3D Renderer ─┘       │
-                     ▼
-                 Validation
+apps/api/             FastAPI app, routes, services, and database access
+apps/web/             Next.js App Router application
+packages/cube-api/    Typed REST client, hooks, and API types
+packages/cube-core/   TypeScript cube state and move engine
+packages/cube-notation/Notation parsing and formatting
+packages/cube-renderer/Three.js and SVG cube rendering
+packages/cube-solver/ Search and Kociemba solver implementations
+packages/shared/      Shared TypeScript types and constants
+ai/                   Python engine, vision, and coaching modules
+database/             SQL schema and migrations
+tests/                TypeScript unit and web interaction tests
 ```
 
-### 3. Services Should Be Replaceable
+## Design boundaries
 
-The solver, AI provider, computer vision implementation, or frontend should be replaceable without rewriting the entire platform.
+- Cube state and move logic should stay independent of React and rendering.
+- The renderer displays state; it should not be the source of cube rules.
+- API routes handle transport and validation; service modules hold application logic.
+- Python vision and engine code can be used independently from the web app.
 
-### 4. Visualization Is Separate From Simulation
-
-The 3D engine is responsible for presenting the cube visually. The Cube Core Engine remains responsible for determining what the cube actually looks like.
-
----
-
-# Technology Stack
-
-| Category              | Technologies                                  |
-| --------------------- | --------------------------------------------- |
-| **Frontend**          | Next.js, React, TypeScript                    |
-| **UI & Styling**      | Tailwind CSS                                  |
-| **3D Visualization**  | Three.js, React Three Fiber                   |
-| **Backend Services**  | FastAPI, Python                               |
-| **API Communication** | REST APIs, WebSockets                         |
-| **Computer Vision**   | OpenCV, NumPy                                 |
-| **AI / Intelligence** | AI coaching and structured reasoning services |
-| **Cube Engine**       | TypeScript standalone packages                |
-| **Solver System**     | Kociemba, IDA*, search algorithms             |
-| **Testing**           | Unit, integration, and end-to-end testing     |
-| **Deployment**        | Docker and containerized services             |
-
----
-
-# Project Structure
-
-CubeAI follows a monorepo-oriented structure to separate applications from reusable domain packages.
-
-```text
-CubeAI/
-│
-├── apps/
-│   ├── web/                        # Next.js web application
-│   │   ├── app/                    # Application routes
-│   │   ├── components/             # Reusable UI components
-│   │   ├── features/               # Feature modules
-│   │   └── lib/                    # Client utilities
-│   │
-│   └── api/                        # FastAPI backend services
-│       ├── routers/                # API endpoints
-│       ├── services/               # Application services
-│       ├── schemas/                # Request/response models
-│       └── core/                   # Configuration and infrastructure
-│
-├── packages/
-│   ├── cube-core/                  # Cube domain model & state engine
-│   │   ├── src/
-│   │   └── tests/
-│   │
-│   ├── cube-renderer/              # 3D visualization abstractions
-│   │
-│   ├── cube-solver/                # Solving algorithms & adapters
-│   │
-│   ├── cube-notation/              # Notation parsing & formatting
-│   │
-│   └── shared/                     # Shared types & constants
-│
-├── ai/
-│   ├── vision/                     # Cube scanning pipeline
-│   ├── color-classifier/           # Sticker color recognition
-│   └── coach/                      # AI coaching & explanation logic
-│
-├── database/
-│   ├── schema/                     # Database definitions
-│   ├── migrations/                 # Schema migrations
-│   └── seeds/                      # Development data
-│
-├── docs/
-│   ├── architecture/               # System architecture documentation
-│   ├── algorithms/                 # Solver & cube algorithm documentation
-│   ├── api/                        # API specifications
-│   └── decisions/                  # Architecture decision records
-│
-├── tests/
-│   ├── integration/                # Cross-service tests
-│   └── e2e/                        # End-to-end tests
-│
-├── docker-compose.yml
-├── package.json
-├── README.md
-└── LICENSE
-```
-
----
-
+See [API](api.md) for routes and [Testing](testing.md) for the verification commands.

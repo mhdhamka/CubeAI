@@ -21,22 +21,22 @@ class CubeStateModel(BaseModel):
     """Cube state representation as corner and edge permutations/orientations."""
     
     # Corner permutation (8 corners, 0-7)
-    corners: List[int] = Field(..., min_items=8, max_items=8, description="Corner positions")
+    corners: List[int] = Field(..., min_length=8, max_length=8, description="Corner positions")
     
     # Corner orientations (0-2 for each corner)
-    corner_orientations: List[int] = Field(..., min_items=8, max_items=8, description="Corner orientations")
+    corner_orientations: List[int] = Field(..., min_length=8, max_length=8, description="Corner orientations")
     
     # Edge permutation (12 edges, 0-11)
-    edges: List[int] = Field(..., min_items=12, max_items=12, description="Edge positions")
+    edges: List[int] = Field(..., min_length=12, max_length=12, description="Edge positions")
     
     # Edge orientations (0-1 for each edge)
-    edge_orientations: List[int] = Field(..., min_items=12, max_items=12, description="Edge orientations")
+    edge_orientations: List[int] = Field(..., min_length=12, max_length=12, description="Edge orientations")
 
 
 class MoveModel(BaseModel):
     """Rubik's cube move representation."""
     
-    face: str = Field(..., regex="^[UDFBLR]$", description="Face: U/D/F/B/L/R")
+    face: str = Field(..., pattern="^[UDFBLR]$", description="Face: U/D/F/B/L/R")
     times: int = Field(default=1, ge=1, le=3, description="Number of 90° rotations (1-3)")
     
     @property

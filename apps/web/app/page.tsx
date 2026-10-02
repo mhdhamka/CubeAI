@@ -7,7 +7,11 @@ import { CubePlayer } from "../../../packages/cube-renderer/CubePlayer";
 import { CubeRenderer } from "../../../packages/cube-renderer/CubeRenderer";
 import { CubeColor } from "../../../packages/cube-core/CubeState";
 import type { CubeState } from "../../../packages/cube-core/CubeState";
-import styles from "./page.module.css";
+import {
+  ActionButton,
+  Panel,
+  SectionLabel,
+} from "./components/dashboard-primitives";
 
 const SOLUTION: Move[] = ["R", "U", "R'", "U'", "F2", "L", "D"];
 const FACES: Move[] = ["U", "R", "F", "D", "L", "B"];
@@ -182,14 +186,14 @@ export default function Home() {
         );
 
   return (
-    <main className={styles.page}>
-      <nav className={styles.nav}>
-        <div className={styles.brand}>
-          <span className={styles.brandMark}>✦</span>
+    <main className="min-h-screen bg-paper bg-[radial-gradient(circle_at_8%_9%,#fff_0_2px,transparent_3px),linear-gradient(135deg,rgba(255,255,255,.7),transparent_42%)] bg-size-[22px_22px,auto] px-5 pb-12 pt-[34px] text-ink sm:px-[5vw] lg:px-[76px]">
+      <nav className="mx-auto mb-11 flex max-w-[1280px] flex-col gap-5 border-b border-line pb-[18px] min-[851px]:flex-row min-[851px]:items-center min-[851px]:gap-7">
+        <div className="flex items-center gap-[9px] whitespace-nowrap">
+          <span className="text-[22px] text-orange">✦</span>
           <strong>CUBE / LAB</strong>
-          <small>practice OS</small>
+          <small className="font-mono text-[10px] text-muted">practice OS</small>
         </div>
-        <div className={styles.navLinks}>
+        <div className="flex flex-1 flex-wrap gap-1.5">
           {(
             [
               "dashboard",
@@ -204,21 +208,23 @@ export default function Home() {
           ).map((item) => (
             <button
               key={item}
-              className={view === item ? styles.navActive : styles.navButton}
+              className={`cursor-pointer border-0 px-[9px] py-[7px] font-mono text-[11px] capitalize transition-colors focus-visible:outline-2 focus-visible:outline-orange ${view === item ? "bg-ink text-paper" : "bg-transparent text-muted hover:bg-ink hover:text-paper"}`}
               onClick={() => setView(item)}
             >
               {item}
             </button>
           ))}
         </div>
-        <div className={styles.avatar}>AM</div>
+        <div className="grid size-[30px] place-items-center bg-acid font-mono text-[11px] max-[850px]:hidden">
+          AM
+        </div>
       </nav>
-      <header className={styles.header}>
+      <header className="mx-auto mb-[34px] flex max-w-[1280px] flex-col items-start gap-6 min-[851px]:flex-row min-[851px]:items-end min-[851px]:justify-between">
         <div>
-          <p className={styles.eyebrow}>
+          <p className="mb-2.5 font-mono text-[11px] font-medium text-muted">
             COMMAND CENTER / {view.toUpperCase()}
           </p>
-          <h1 className={styles.title}>
+          <h1 className="m-0 max-w-[680px] text-[clamp(34px,5vw,68px)] leading-[.96] font-semibold">
             {view === "dashboard"
               ? "Make every solve count."
               : view === "cube"
@@ -229,24 +235,25 @@ export default function Home() {
                     ? "Progress, made visible."
                     : "Keep the hands moving."}
           </h1>
-          <p className={styles.subtitle}>
+          <p className="mt-[18px] max-w-[510px] text-base leading-6 text-muted">
             A focused workspace for learning, solving, and building speed one
             deliberate turn at a time.
           </p>
         </div>
-        <div className={styles.status}>
-          <span /> {message}
+        <div className="inline-block border border-line px-3.5 py-2.5 font-mono text-[11px] font-medium whitespace-nowrap text-muted min-[851px]:mb-0">
+          <span className="mr-2 inline-block size-[7px] rounded-full bg-[#7dd39b]" />
+          {message}
         </div>
       </header>
-      <section className={styles.dashboardGrid}>
-        <div className={styles.mainCard}>
-          <div className={styles.cardTop}>
-            <span className={styles.kicker}>LIVE CUBE / 01</span>
-            <button className={styles.textButton} onClick={reset}>
+      <section className="mx-auto grid max-w-[1280px] grid-cols-1 gap-[18px] min-[851px]:grid-cols-[minmax(0,1.5fr)_minmax(300px,.8fr)]">
+        <div className="border border-line bg-white/60 p-[18px]">
+          <div className="flex items-start justify-between gap-3.5">
+            <SectionLabel>LIVE CUBE / 01</SectionLabel>
+            <ActionButton variant="quiet" onClick={reset}>
               Reset state
-            </button>
+            </ActionButton>
           </div>
-          <div className={styles.model}>
+          <div className="mt-2 grid min-h-[420px] place-items-center bg-[#19231f] min-[851px]:min-h-[560px] [&>div]:h-full [&>div]:w-full">
             <CubePlayer
               state={state}
               solution={solution}
@@ -255,118 +262,121 @@ export default function Home() {
               onFaceMove={applyMove}
             />
           </div>
-          <div className={styles.modelFooter}>
-            <span>
-              Front <b>Green</b>
-            </span>
-            <span>
-              Up <b>White</b>
-            </span>
-            <span>
-              Right <b>Red</b>
-            </span>
-            <button onClick={() => setView("cube")}>Open 3D view ↗</button>
+          <div className="flex flex-wrap items-center gap-x-[22px] gap-y-2 pt-3.5 font-mono text-[11px] text-muted">
+            <span>Front <b className="font-medium text-ink">Green</b></span>
+            <span>Up <b className="font-medium text-ink">White</b></span>
+            <span>Right <b className="font-medium text-ink">Red</b></span>
+            <button
+              className="cursor-pointer border-0 border-b border-ink bg-transparent text-[11px] text-ink hover:text-muted min-[851px]:ml-auto"
+              onClick={() => setView("cube")}
+            >
+              Open 3D view ↗
+            </button>
           </div>
         </div>
-        <aside className={styles.sideStack}>
-          <section className={styles.card}>
-            <div className={styles.cardTop}>
-              <span className={styles.kicker}>QUICK ACTIONS</span>
-              <span className={styles.liveDot}>ONLINE</span>
+        <aside className="grid content-start gap-[18px] max-[850px]:[&>section]:mb-[18px]">
+          <Panel>
+            <div className="flex items-start justify-between gap-3.5">
+              <SectionLabel>QUICK ACTIONS</SectionLabel>
+              <span className="font-mono text-[10px] text-[#358b5e]">ONLINE</span>
             </div>
-            <div className={styles.quickGrid}>
-              <button onClick={() => setView("scanner")}>
-                ▣<span>Scan cube</span>
-              </button>
-              <button onClick={solve}>
-                ⌁<span>Find solution</span>
-              </button>
-              <button onClick={() => setView("timer")}>
-                ◷<span>Start timer</span>
-              </button>
-              <button onClick={() => setView("training")}>
-                ◎<span>Train today</span>
-              </button>
+            <div className="mt-3 grid grid-cols-2 gap-[7px]">
+              {([
+                ["▣", "Scan cube", () => setView("scanner")],
+                ["⌁", "Find solution", solve],
+                ["◷", "Start timer", () => setView("timer")],
+                ["◎", "Train today", () => setView("training")],
+              ] as [string, string, () => void][]).map(([icon, label, action]) => (
+                <button
+                  key={label}
+                  className="min-h-[76px] cursor-pointer border border-line bg-transparent p-3 text-left text-[21px] hover:bg-acid"
+                  onClick={action}
+                >
+                  {icon}
+                  <span className="mt-3 block font-mono text-[11px]">
+                    {label}
+                  </span>
+                </button>
+              ))}
             </div>
-          </section>
-          <section className={styles.card}>
-            <div className={styles.cardTop}>
+          </Panel>
+          <Panel>
+            <div className="flex items-start justify-between gap-3.5">
               <div>
-                <span className={styles.kicker}>SESSION SNAPSHOT</span>
-                <h2>Today at a glance</h2>
+                <SectionLabel>SESSION SNAPSHOT</SectionLabel>
+                <h2 className="my-[18px] text-xl font-semibold">Today at a glance</h2>
               </div>
-              <button
-                className={styles.textButton}
+              <ActionButton
+                variant="quiet"
                 onClick={() => setView("statistics")}
               >
                 Details
-              </button>
+              </ActionButton>
             </div>
-            <div className={styles.metrics}>
-              <div>
-                <strong>{records.length}</strong>
-                <span>solves</span>
+            <div className="grid grid-cols-3 gap-2.5">
+              <div className="border-l-2 border-acid pl-2.5">
+                <strong className="block text-[19px]">{records.length}</strong>
+                <span className="block text-xs leading-[1.45] text-muted">solves</span>
               </div>
-              <div>
-                <strong>{average(5)}</strong>
-                <span>Ao5</span>
+              <div className="border-l-2 border-acid pl-2.5">
+                <strong className="block text-[19px]">{average(5)}</strong>
+                <span className="block text-xs leading-[1.45] text-muted">Ao5</span>
               </div>
-              <div>
-                <strong>
+              <div className="border-l-2 border-acid pl-2.5">
+                <strong className="block text-[19px]">
                   {records.length
                     ? formatTime(
                         Math.min(...records.map((record) => record.time)),
                       )
                     : "--"}
                 </strong>
-                <span>best</span>
+                <span className="block text-xs leading-[1.45] text-muted">best</span>
               </div>
             </div>
-          </section>
-          <section className={styles.card}>
-            <span className={styles.kicker}>NEXT REP</span>
-            <h2>R U R' U'</h2>
-            <p className={styles.muted}>Four-move trigger · right-handed</p>
-            <button
-              className={styles.primaryButton}
+          </Panel>
+          <Panel>
+            <SectionLabel>NEXT REP</SectionLabel>
+            <h2 className="my-[18px] text-xl font-semibold">R U R&apos; U&apos;</h2>
+            <p className="text-xs leading-[1.45] text-muted">
+              Four-move trigger · right-handed
+            </p>
+            <ActionButton
               onClick={() => {
                 setSolution(["R", "U", "R'", "U'"]);
                 setView("training");
               }}
             >
-              Practice algorithm <span>→</span>
-            </button>
-          </section>
+              Practice algorithm <span className="ml-auto">→</span>
+            </ActionButton>
+          </Panel>
         </aside>
       </section>
-      <section className={styles.lowerGrid}>
-        <section className={styles.card}>
-          <div className={styles.cardTop}>
+      <section className="mx-auto mt-[18px] grid max-w-[1280px] grid-cols-1 gap-[18px] min-[851px]:grid-cols-[1.2fr_.8fr]">
+        <Panel className="p-5">
+          <div className="flex items-start justify-between gap-3.5">
             <div>
-              <span className={styles.kicker}>MANUAL INPUT</span>
-              <h2>Build a state</h2>
+              <SectionLabel>MANUAL INPUT</SectionLabel>
+              <h2 className="my-[18px] text-xl font-semibold">Build a state</h2>
             </div>
-            <span className={styles.muted}>Edit stickers</span>
+            <span className="text-xs text-muted">Edit stickers</span>
           </div>
-          <div className={styles.editorRow}>
-            <div className={styles.faceTabs}>
+          <div className="flex flex-col items-start justify-between gap-3 min-[851px]:flex-row min-[851px]:items-center">
+            <div className="flex gap-1">
               {FACE_NAMES.map((face) => (
                 <button
                   key={face}
-                  className={
-                    editFace === face ? styles.faceActive : styles.faceTab
-                  }
+                  className={`cursor-pointer border border-line px-[9px] py-[7px] font-mono text-[11px] ${editFace === face ? "bg-ink text-white" : "bg-transparent text-ink hover:bg-white"}`}
                   onClick={() => setEditFace(face)}
                 >
                   {face}
                 </button>
               ))}
             </div>
-            <div className={styles.palette}>
+            <div className="flex gap-1">
               {COLORS.map((color) => (
                 <button
                   key={color}
-                  className={styles.swatch}
+                  className={`size-[22px] cursor-pointer rounded-full border-2 border-transparent ${editColor === color ? "outline-2 outline-acid" : ""}`}
                   style={{
                     background:
                       color === CubeColor.White
@@ -388,11 +398,11 @@ export default function Home() {
               ))}
             </div>
           </div>
-          <div className={styles.stickerEditor}>
+          <div className="mt-[18px] grid grid-cols-[repeat(3,48px)] gap-[5px]">
             {state[editFace].map((color, index) => (
-                <button
+              <button
                 key={index}
-                className={styles.stickerCell}
+                className="aspect-square cursor-pointer border border-ink font-mono text-[10px] text-ink"
                 style={{
                   background:
                     color === "W"
@@ -407,83 +417,208 @@ export default function Home() {
                               ? "#5b9a72"
                               : "#557ca5",
                 }}
-                  onClick={() => editSticker(index, editColor)}
-                  aria-pressed={editColor === color}
+                onClick={() => editSticker(index, editColor)}
+                aria-pressed={editColor === color}
+                aria-label={`${editFace} sticker ${index + 1}: ${COLOR_NAMES[color]}`}
               >
                 {index + 1}
               </button>
             ))}
           </div>
-          <p className={styles.hint}>
+          <p className="mt-3 text-xs leading-[1.45] text-muted">
             Select a face, choose a color, then click a sticker position. The
             shared cube state updates immediately.
           </p>
-        </section>
-        <section className={styles.card}>
-          <div className={styles.cardTop}>
+        </Panel>
+        <Panel>
+          <div className="flex items-start justify-between gap-3.5">
             <div>
-              <span className={styles.kicker}>RECENT SOLVES</span>
-              <h2>Session history</h2>
+              <SectionLabel>RECENT SOLVES</SectionLabel>
+              <h2 className="my-[18px] text-xl font-semibold">Session history</h2>
             </div>
-            <button
-              className={styles.textButton}
+            <ActionButton
+              variant="quiet"
               onClick={() => setView("statistics")}
             >
               All stats
-            </button>
+            </ActionButton>
           </div>
           {records.length === 0 ? (
-            <p className={styles.muted}>
+            <p className="text-xs leading-[1.45] text-muted">
               No solves yet. Start the timer to record your first attempt.
             </p>
           ) : (
-            <div className={styles.history}>
+            <div className="grid gap-px">
               {records.slice(0, 4).map((record, index) => (
-                <div key={`${record.date}-${index}`}>
-                  <span>#{String(index + 1).padStart(2, "0")}</span>
+                <div
+                  className="grid grid-cols-[40px_1fr_auto] items-center border-b border-line py-[11px]"
+                  key={`${record.date}-${index}`}
+                >
+                  <span className="font-mono text-[10px] text-muted">
+                    #{String(index + 1).padStart(2, "0")}
+                  </span>
                   <strong>{formatTime(record.time)}</strong>
-                  <small>{record.date}</small>
+                  <small className="font-mono text-[10px] text-muted">
+                    {record.date}
+                  </small>
                 </div>
               ))}
             </div>
           )}
-        </section>
+        </Panel>
       </section>
       {view === "timer" && (
-        <section className={styles.timerOverlay}>
-          <div className={styles.card}>
-            <span className={styles.kicker}>SPEED TIMER</span>
-            <div className={styles.timerValue}>{formatTime(elapsed)}</div>
-            <p className={styles.muted}>
+        <section className="mx-auto mt-[18px] max-w-[1280px]">
+          <Panel>
+            <SectionLabel>SPEED TIMER</SectionLabel>
+            <div className="my-[22px] font-mono text-[clamp(44px,8vw,100px)] font-semibold">
+              {formatTime(elapsed)}
+            </div>
+            <p className="text-xs leading-[1.45] text-muted">
               Spacebar-ready session timer · {records.length} recorded solves
             </p>
-            <button className={styles.timerButton} onClick={toggleTimer}>
+            <ActionButton
+              className="w-auto bg-orange px-6 py-3.5 text-ink hover:bg-[#ff885b]"
+              onClick={toggleTimer}
+            >
               {timerRunning ? "Stop and save" : "Start solve"}
-            </button>
-            <div className={styles.averages}>
-              <span>
-                Ao5 <b>{average(5)}</b>
-              </span>
-              <span>
-                Ao12 <b>{average(12)}</b>
-              </span>
-              <span>
-                Ao100 <b>{average(100)}</b>
-              </span>
+            </ActionButton>
+            <div className="mt-6 flex flex-wrap gap-7 font-mono text-[11px]">
+              <span>Ao5 <b className="mt-1 block text-base">{average(5)}</b></span>
+              <span>Ao12 <b className="mt-1 block text-base">{average(12)}</b></span>
+              <span>Ao100 <b className="mt-1 block text-base">{average(100)}</b></span>
             </div>
-          </div>
+          </Panel>
         </section>
       )}
       {view !== "dashboard" && view !== "timer" && (
-        <section className={styles.utilityOverlay}>
-          <div className={styles.card}>
-            {view === "scanner" && <><span className={styles.kicker}>SCANNER</span><h2>Bring a cube into the lab</h2><p className={styles.muted}>The vision pipeline accepts six face images or a live camera session. Use the Python scanner to produce a validated CubeState.</p><div className={styles.scannerActions}><button className={styles.primaryButton} onClick={() => setMessage("Run: py ai\\vision\\scanSession.py --camera")}>Open camera workflow <span>↗</span></button><button className={styles.secondaryButton} onClick={() => setMessage("Six face images ready to import")}>Import six face images</button></div></>}
-            {view === "solver" && <><span className={styles.kicker}>SOLVER</span><h2>Solution interface</h2><p className={styles.muted}>{solution.length ? `A ${solution.length}-move inverse solution is ready from the current move history.` : "The current cube is solved."}</p><div className={styles.solutionLarge}>{solution.length ? solution.join("  ") : "SOLVED"}</div><button className={styles.primaryButton} onClick={() => setView("cube")}>Visualize solution <span>→</span></button></>}
-            {view === "cube" && <><span className={styles.kicker}>3D CUBE</span><h2>Interactive model</h2><p className={styles.muted}>Orbit the model, click a visible face, or use the manual deck to apply moves through cube-core.</p><button className={styles.primaryButton} onClick={() => setView("dashboard")}>Return to workspace <span>→</span></button></>}
-            {view === "training" && <><span className={styles.kicker}>TRAINING</span><h2>Today&apos;s focused set</h2><div className={styles.trainingRow}><strong>R U R&apos; U&apos;</strong><span>Trigger recognition</span><button className={styles.primaryButton} onClick={() => setSolution(["R", "U", "R'", "U'"])}>Load drill <span>→</span></button></div><div className={styles.trainingRow}><strong>Accuracy first</strong><span>Repeat 5 clean reps</span><button className={styles.secondaryButton} onClick={() => setMessage("Training goal started")}>Start goal</button></div></>}
-            {view === "statistics" && <><span className={styles.kicker}>STATISTICS</span><h2>Session performance</h2><div className={styles.bigStats}><div><strong>{records.length}</strong><span>total solves</span></div><div><strong>{average(5)}</strong><span>rolling Ao5</span></div><div><strong>{records.length ? formatTime(Math.min(...records.map((record) => record.time))) : "--"}</strong><span>personal best</span></div></div><div className={styles.bars}>{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => <div key={day}><i style={{ height: `${20 + ((records.length + index * 13) % 75)}%` }} /><small>{day}</small></div>)}</div></>}
-            {view === "profile" && <><span className={styles.kicker}>PROFILE</span><h2>Alex Morgan</h2><p className={styles.muted}>Beginner track · learning consistency over speed.</p><div className={styles.profileLine}><span>Current focus</span><strong>Layer-by-layer</strong></div><div className={styles.profileLine}><span>Practice streak</span><strong>{records.length ? `${records.length} solves` : "Start today"}</strong></div><button className={styles.secondaryButton} onClick={() => setMessage("Profile settings are saved locally")}>Save profile settings</button></>}
-          </div>
+        <section className="mx-auto mt-[18px] max-w-[1280px]">
+          <Panel className="min-h-[210px]">
+            {view === "scanner" && (
+              <>
+                <SectionLabel>SCANNER</SectionLabel>
+                <h2 className="my-[18px] text-xl font-semibold">Bring a cube into the lab</h2>
+                <p className="text-xs leading-[1.45] text-muted">
+                  The vision pipeline accepts six face images or a live camera
+                  session. Use the Python scanner to produce a validated CubeState.
+                </p>
+                <div className="mt-[22px] flex flex-wrap gap-2.5">
+                  <ActionButton
+                    onClick={() =>
+                      setMessage("Run: py ai\\vision\\scanSession.py --camera")
+                    }
+                  >
+                    Open camera workflow <span>↗</span>
+                  </ActionButton>
+                  <ActionButton
+                    variant="secondary"
+                    onClick={() => setMessage("Six face images ready to import")}
+                  >
+                    Import six face images
+                  </ActionButton>
+                </div>
+              </>
+            )}
+            {view === "solver" && (
+              <>
+                <SectionLabel>SOLVER</SectionLabel>
+                <h2 className="my-[18px] text-xl font-semibold">Solution interface</h2>
+                <p className="text-xs leading-[1.45] text-muted">
+                  {solution.length
+                    ? `A ${solution.length}-move inverse solution is ready from the current move history.`
+                    : "The current cube is solved."}
+                </p>
+                <div className="my-6 border-l-[3px] border-acid bg-white p-[18px] font-mono text-[15px] leading-[1.8]">
+                  {solution.length ? solution.join("  ") : "SOLVED"}
+                </div>
+                <ActionButton onClick={() => setView("cube")}>
+                  Visualize solution <span>→</span>
+                </ActionButton>
+              </>
+            )}
+            {view === "cube" && (
+              <>
+                <SectionLabel>3D CUBE</SectionLabel>
+                <h2 className="my-[18px] text-xl font-semibold">Interactive model</h2>
+                <p className="text-xs leading-[1.45] text-muted">
+                  Orbit the model, click a visible face, or use the manual deck
+                  to apply moves through cube-core.
+                </p>
+                <ActionButton onClick={() => setView("dashboard")}>
+                  Return to workspace <span>→</span>
+                </ActionButton>
+              </>
+            )}
+            {view === "training" && (
+              <>
+                <SectionLabel>TRAINING</SectionLabel>
+                <h2 className="my-[18px] text-xl font-semibold">Today&apos;s focused set</h2>
+                <div className="grid items-center gap-4 border-t border-line py-4 min-[851px]:grid-cols-[1fr_1fr_auto]">
+                  <strong>R U R&apos; U&apos;</strong>
+                  <span>Trigger recognition</span>
+                  <ActionButton
+                    className="min-[851px]:w-auto"
+                    onClick={() => setSolution(["R", "U", "R'", "U'"])}
+                  >
+                    Load drill <span>→</span>
+                  </ActionButton>
+                </div>
+                <div className="grid items-center gap-4 border-t border-line py-4 min-[851px]:grid-cols-[1fr_1fr_auto]">
+                  <strong>Accuracy first</strong>
+                  <span>Repeat 5 clean reps</span>
+                  <ActionButton
+                    className="min-[851px]:w-auto"
+                    variant="secondary"
+                    onClick={() => setMessage("Training goal started")}
+                  >
+                    Start goal
+                  </ActionButton>
+                </div>
+              </>
+            )}
+            {view === "statistics" && (
+              <>
+                <SectionLabel>STATISTICS</SectionLabel>
+                <h2 className="my-[18px] text-xl font-semibold">Session performance</h2>
+                <div className="my-7 flex flex-wrap gap-[42px]">
+                  <div><strong className="block font-mono text-[26px]">{records.length}</strong><span className="mt-1.5 block text-xs text-muted">total solves</span></div>
+                  <div><strong className="block font-mono text-[26px]">{average(5)}</strong><span className="mt-1.5 block text-xs text-muted">rolling Ao5</span></div>
+                  <div><strong className="block font-mono text-[26px]">{records.length ? formatTime(Math.min(...records.map((record) => record.time))) : "--"}</strong><span className="mt-1.5 block text-xs text-muted">personal best</span></div>
+                </div>
+                <div className="flex h-[130px] items-end gap-[18px] border-b border-line px-3">
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => (
+                    <div className="grid h-full flex-1 items-end gap-[7px] text-center" key={day}>
+                      <i className="block min-h-[15px] bg-orange" style={{ height: `${20 + ((records.length + index * 13) % 75)}%` }} />
+                      <small className="font-mono text-[10px] text-muted">{day}</small>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {view === "profile" && (
+              <>
+                <SectionLabel>PROFILE</SectionLabel>
+                <h2 className="my-[18px] text-xl font-semibold">Alex Morgan</h2>
+                <p className="text-xs leading-[1.45] text-muted">
+                  Beginner track · learning consistency over speed.
+                </p>
+                <div className="grid grid-cols-[1fr_auto] items-center gap-4 border-t border-line py-4 text-xs">
+                  <span className="text-muted">Current focus</span>
+                  <strong>Layer-by-layer</strong>
+                </div>
+                <div className="grid grid-cols-[1fr_auto] items-center gap-4 border-t border-line py-4 text-xs">
+                  <span className="text-muted">Practice streak</span>
+                  <strong>{records.length ? `${records.length} solves` : "Start today"}</strong>
+                </div>
+                <ActionButton
+                  variant="secondary"
+                  onClick={() => setMessage("Profile settings are saved locally")}
+                >
+                  Save profile settings
+                </ActionButton>
+              </>
+            )}
+          </Panel>
         </section>
       )}
     </main>

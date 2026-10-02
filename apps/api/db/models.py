@@ -66,7 +66,7 @@ class SolveRecord(Base):
     is_dnf = Column(Boolean, default=False)  # Did Not Finish
     is_dns = Column(Boolean, default=False)  # Did Not Start
     notes = Column(String(500), nullable=True)  # User notes
-    metadata = Column(JSON, nullable=True)  # Additional data
+    metadata_json = Column("metadata", JSON, nullable=True)  # Additional data
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     # Relationships
