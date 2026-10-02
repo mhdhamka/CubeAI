@@ -239,17 +239,13 @@ def test_six_uploaded_faces_build_validate_and_solve(client, monkeypatch):
     Image.new("RGB", (120, 120), "white").save(image_buffer, format="PNG")
     image_data = image_buffer.getvalue()
     
-    # Send as JSON body payload conforming to the Pydantic model definition
-    payload_files = [
-        {
-            "filename": f"{face}.png",
-            "content": image_data.hex(),
-            "content_type": "image/png"
-        }
+    # Correct multi-file list of tuples format matching FastAPI's `files` form field expectation
+    files = [
+        ("files", (f"{face}.png", image_data, "image/png"))
         for face in faces
     ]
 
-    scan_response = client.post("/api/scan/image", json={"files": payload_files})
+    scan_response = client.post("/api/scan/image", files=files)
 
     assert scan_response.status_code == 200, scan_response.text
     scan_body = scan_response.json()
